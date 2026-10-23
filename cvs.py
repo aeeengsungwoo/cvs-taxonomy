@@ -12,6 +12,7 @@
   python cvs.py oos 코카콜라      품절 시 대신 권할 상품과 이유 (--also-out, --context weather=더움, --all)
   python cvs.py survey            페르소나 설문 집계 → 기존 라벨과 대조, 품절 추천 precision/recall (out/survey_*.csv)
   python cvs.py graph [--push]    out/graph.cypher, out/edges.csv, out/audit.md 생성 (--push 면 Neo4j에 바로 적재)
+                                  정책 충돌 → review/conflicts.csv (decision 칸에 허용 / 유지)
 """
 import argparse
 import csv
@@ -745,6 +746,16 @@ def edge_strength(model, label, auto=None, policy=None):
     return round(0.8 * model, 3), "unreviewed"
 
 
+CONFLICT_HEADER = ["a", "a_name", "b", "b_name", "reason", "decision", "note"]
+
+
+def load_conflict_decisions():
+    """정책 충돌(라벨 O인데 정책 위반)에 대한 결정. 허용 = 그 쌍만 정책 예외, 유지 = 정책이 맞고 라벨을 따르지 않음."""
+    path = ROOT / "review/conflicts.csv"
+    return {(r["a"], r["b"]): r["decision"].strip() for r in read_csv("review/conflicts.csv")
+            if r["decision"].strip() in ("허용", "유지")} if path.exists() else {}
+
+
 def load_auto():
     path = ROOT / "review/auto_labels.csv"
     return {(r["anchor"], r["candidate"]): int(r["label"]) for r in read_csv("review/auto_labels.csv")} if path.exists() else {}
@@ -760,7 +771,9 @@ def build_edges(products, attrs, policy, w, gold, k, min_score, survey=None):
     ok_ways = {tuple(r["key"].split(".")[1:]) for r in admin_rows()
                if r["kind"] == "policy" and r["answer"].strip().upper() in POS}  # 관리자가 O 한 방향 (sugar, down) …
     # 방향 있는 쌍 (a 찾는 손님에게 b). 후보는 양방향으로 넣고 방향마다 따로 정책을 건다.
-    pairs = {pair for pair, lab in gold.items() if lab == 1} | {pair for pair, lab in auto.items() if lab == 1}         | {pair for pair, (lab, _) in survey.items() if lab == 1}
+    pairs = ({pair for pair, lab in gold.items() if lab == 1} | {pair for pair, lab in auto.items() if lab == 1}
+             | {pair for pair, (lab, _) in survey.items() if lab == 1})
+    decided = load_conflict_decisions()
     for pid, p in products.items():
         pairs |= {(pid, q) for sc, q in ranked(products, attrs, w, pid)[:k] if sc >= min_score}
         an = anchors[pid]
@@ -779,7 +792,10 @@ def build_edges(products, attrs, policy, w, gold, k, min_score, survey=None):
         if (a, b) in survey and (a, b) not in human:
             label = survey[(a, b)][0]  # 설문이 옳다고 가정 — AI 검수·관리자(AI) 라벨보다 우선
         why = substitute_violations(pa, pb, attrs, policy)
-        if why:
+        if why and label == 1 and decided.get((a, b)) == "유지":
+            label = 0  # 충돌 결정: 정책이 맞다 (review/conflicts.csv)
+            why.append("충돌 결정: 정책 유지")
+        if why and not (label == 1 and decided.get((a, b)) == "허용"):  # 허용 = 이 쌍만 정책 예외
             (conflicts if label == 1 else blocked).append(("SUBSTITUTE", a, b, round(model, 3), " · ".join(why)))
             continue
         steps = direction_steps(pa, pb, attrs, policy)
@@ -1209,6 +1225,11 @@ def cmd_graph(args):
     write_csv("out/blocked.csv", ["kind", "rel", "a", "a_name", "b", "b_name", "score", "reason"],
               [("정책 충돌", r, a, name(a), b, name(b), s, why) for r, a, b, s, why in conflicts]
               + [("정책 차단", r, a, name(a), b, name(b), s, why) for r, a, b, s, why in sorted(blocked, key=lambda x: -x[3])])
+    # 충돌 결정 대기표: 결정한 행은 두고, 새 충돌은 decision 을 비워 추가 (허용 / 유지)
+    old = read_csv("review/conflicts.csv") if (ROOT / "review/conflicts.csv").exists() else []
+    known = {(r["a"], r["b"]) for r in old}
+    write_csv("review/conflicts.csv", CONFLICT_HEADER, [[r[h] for h in CONFLICT_HEADER] for r in old]
+              + [[a, name(a), b, name(b), why, "", ""] for r, a, b, s, why in conflicts if r == "SUBSTITUTE" and (a, b) not in known])
     by = lambda key: sum(e["review"] == key for e in subs.values())
     print(f"대체 간선 {len(subs)} (설문 {by('survey')} / 검수O {by('approved')} / 미검수 {by('unreviewed')}) · 보완 간선 {len(comps)}")
     print(f"정책 차단 {len(blocked)} · 정책 충돌 {len(conflicts)} · 콤보 {sum(map(len, combos.values()))} · 트렌드 {len(trends)}")

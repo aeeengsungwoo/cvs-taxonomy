@@ -35,17 +35,18 @@ python cvs.py oos "코카콜라 500ml"
 4. 함께 품절인 상품, 지금 상황(TPO)에 안 맞는 상품은 뺀다. 단 손님이 고른 상품도 그 상황을 피하는 상품이면 손님 선택이 우선
 5. 강도 0.6 미만이면 "권할 대체 없음"
 
-전 상품 결과는 `out/oos_recommendations.csv` 에 있다(110개 중 96개 대체 있음, 14개 없음 — 대부분 시드 데이터에 같은 종류 상품이 하나뿐이라서).
+전 상품 결과는 `out/oos_recommendations.csv` 에 있다(110개 중 99개 대체 있음, 11개 없음 — 대부분 시드 데이터에 같은 종류 상품이 하나뿐이라서).
 
 ### 사람다움 측정 — 페르소나 30명 설문
 
 실제 품절 판매 데이터가 없어서, 성향이 다른 30명(당뇨·다이어트·임산부·맵찔이·브랜드 충성·가격 민감 등)을 생성형 에이전트로 만들었다. 상품 110개가 각각 품절일 때 매대의 보기 7개 중 무엇을 대신 사겠는지 물었다 → [`docs/survey.md`](docs/survey.md).
 설문이 옳다고 가정하고 상품쌍 판정과 정책 6개(같은 라인 포장형태·당 방향, 매운 손님의 맵기, 세트 ↔ 낱개, 카테고리 묶음, 생리대 사이즈)에 반영했다.
+설문과 정책이 부딪힌 24쌍은 `review/conflicts.csv` 에서 한 쌍씩 결정했다. 소수 보호와 "없으면 이거라도" 기준으로 16쌍은 정책을 유지했고, 8쌍은 예외로 허용했다.
 
 | 짝수 페르소나로 채점 (판정은 홀수 페르소나로) | precision | recall | top1 |
 |---|---|---|---|
 | 설문 전 | 0.897 | 0.577 | 0.571 |
-| 설문 반영 후 | 0.915 | 0.709 | 0.695 |
+| 설문 반영 + 정책 충돌 정리 | 0.918 | 0.737 | 0.705 |
 
 ![GS 추천 온톨로지 보드](docs/board.svg)
 
@@ -320,6 +321,7 @@ MATCH (c:Combo)-[:FOR]->(:Scene {id:'rainy_commute'}), (c)-[i:INCLUDES]->(p) RET
 | `review/gold.csv` · `review/queue.csv` | 검수 정답셋(source: seed · claude · admin · review) · 검수 대기. 설문 판정은 review 다음으로 우선 |
 | `review/anchor.csv` | 상품별 대체 기준 판정 · 사람 결정 칸 |
 | `review/admin_queue.csv` · `review/auto_labels.csv` | 관리자 질문(정책 문항·상품쌍) · 자동 판정과 근거 |
+| `review/conflicts.csv` | 정책 충돌(라벨 O인데 정책 위반) 결정 — 허용(그 쌍만 예외) / 유지 |
 | `out/esci_policy_check.csv` · `out/esci_samples.csv` | ESCI 사람 라벨로 본 정책별 E/S/C/I 분포 · 샘플 |
 | `survey/personas.yaml` · `survey/questions.json` · `survey/answers/` | 설문 응답자 30명 · 품절 문항 110개 · 응답 |
 | `out/survey_pairs.csv` · `out/survey_features.csv` · `out/survey_eval.csv` | 설문 판정 · 차이 유형별 수용률 · 추천 vs 설문 평가 |
