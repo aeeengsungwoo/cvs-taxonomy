@@ -332,7 +332,9 @@ def substitute_violations(p, q, attrs, policy):
     if p["type"] != q["type"]:
         return ["상품간: type 다름"]
     rule, out = policy["substitute"][p["type"]], []
-    if "category_level" in rule and cat_prefix(p, rule["category_level"]) != cat_prefix(q, rule["category_level"]):
+    covers = any(matches(q, {"category": i["set"]}) and any(matches(p, {"category": c}) for c in i["covers"])
+                 for i in policy["substitute"].get("includes", []))  # 구성품 → 세트는 아이덴티티가 달라도 대체 (반대는 안 됨)
+    if "category_level" in rule and not covers and cat_prefix(p, rule["category_level"]) != cat_prefix(q, rule["category_level"]):
         out.append(f"아이덴티티: 카테고리 {rule['category_level']}단계 다름")
     for aid in rule.get("same", []):
         a, b = p["attrs"].get(aid), q["attrs"].get(aid)
@@ -355,14 +357,17 @@ def substitute_violations(p, q, attrs, policy):
     return out
 
 
-def direction_steps(p, q, attrs, policy):
-    """p 찾는 손님에게 q 를 권할 때 방향 속성별 이동 단계. {aid: +n 커짐 / -n 작아짐}"""
+def direction_steps(p, q, attrs, policy, raw=False):
+    """p 찾는 손님에게 q 를 권할 때 방향 속성별 이동 단계. {aid: +n 커짐 / -n 작아짐}
+    free_up_to 이하로 올라가는 것은 방향 정책에서 제외(안 매움 → 약간 매움). raw=True 면 그것도 포함(이유 문구용)."""
     out = {}
-    for aid in policy["substitute"].get("direction", {}):
+    for aid, r in policy["substitute"].get("direction", {}).items():
         a, b = p["attrs"].get(aid), q["attrs"].get(aid)
         if a is not None and b is not None and a != b:
             order = list(attrs[aid]["values"])
-            out[aid] = order.index(b) - order.index(a)
+            st = order.index(b) - order.index(a)
+            if raw or not (st > 0 and "free_up_to" in r and order.index(b) <= order.index(r["free_up_to"])):
+                out[aid] = st
     return out
 
 
@@ -608,7 +613,7 @@ def labeled_examples(products, attrs, policy, gold):
     ex = []
     for (c, d), lab in gold.items():
         ex.append((c, d, lab))
-        if not direction_steps(products[c], products[d], attrs, policy):
+        if not direction_steps(products[c], products[d], attrs, policy) and (d, c) not in gold:  # 반대 방향 라벨이 따로 있으면 빌리지 않음
             ex.append((d, c, lab))
     return ex
 
@@ -735,6 +740,8 @@ def build_edges(products, attrs, policy, w, gold, k, min_score):
     """반환: 대체 간선, 보완 간선, 정책 차단 목록(튀는 추천), 정책 충돌(검수 O인데 정책 위반)."""
     subs, blocked, conflicts = {}, [], []
     anchors, auto = effective_anchors(products, attrs, policy), load_auto()
+    ok_ways = {tuple(r["key"].split(".")[1:]) for r in admin_rows()
+               if r["kind"] == "policy" and r["answer"].strip().upper() in POS}  # 관리자가 O 한 방향 (sugar, down) …
     # 방향 있는 쌍 (a 찾는 손님에게 b). 후보는 양방향으로 넣고 방향마다 따로 정책을 건다.
     pairs = {pair for pair, lab in gold.items() if lab == 1} | {pair for pair, lab in auto.items() if lab == 1}
     for pid, p in products.items():
@@ -756,7 +763,12 @@ def build_edges(products, attrs, policy, w, gold, k, min_score):
         if why:
             (conflicts if label == 1 else blocked).append(("SUBSTITUTE", a, b, round(model, 3), " · ".join(why)))
             continue
-        strength, review = edge_strength(model, label, auto.get((a, b)), policy)
+        steps = direction_steps(pa, pb, attrs, policy)
+        if label is None and steps and all((aid, "up" if st > 0 else "down") in ok_ways for aid, st in steps.items()):
+            # 이 방향은 관리자 정책 문항으로 승인됨 (코카콜라 → 코카콜라 제로)
+            strength, review = round(0.5 + 0.5 * model, 3), "policy"
+        else:
+            strength, review = edge_strength(model, label, auto.get((a, b)), policy)
         if strength is not None:
             subs[(a, b)] = {"strength": strength, "model_score": round(model, 3), "review": review, "anchor": hit}
     comps, cand = {}, {}
@@ -938,7 +950,7 @@ def explain(p, q, attrs, cats, policy):
                 same = f"같은 {cats[c]['name']}"
                 break
     diffs = []
-    for aid, st in direction_steps(p, q, attrs, policy).items():
+    for aid, st in direction_steps(p, q, attrs, policy, raw=True).items():
         word = {"sugar": ("당", "더 많음", "더 적음"), "spicy": ("맵기", "한 단계 더 매움", "한 단계 덜 매움"),
                 "caffeine": ("카페인", "더 많음", "더 적음")}[aid]
         diffs.append(f"{word[0]} 없음" if aid == "sugar" and qa[aid] == "없음" else f"{word[0]} {word[1] if st > 0 else word[2]}")
