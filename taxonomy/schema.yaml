@@ -1,0 +1,250 @@
+# 속성 스키마. 모든 속성·값에 definition 필수.
+#
+# depth  : 속성 뎁스. 1=정체성(무엇인가) 2=감각(어떤 맛·식감인가) 3=상황·가치(언제·얼마에) 4=세부(누가 만들었나)
+#          `python cvs.py sweep` 이 뎁스·가중치를 바꿔가며 검수 정답셋에 대한 추천 성능을 재고, 쓸 뎁스를 정한다.
+# type   : tree(카테고리 트리 거리) | single(같으면 1) | multi(자카드) | ordinal(순서 거리) | open(값 목록 없음, 같으면 1)
+# applies_to : snack / ramen. 공통 속성 = 둘 다. 해당 안 되는 속성은 비교에서 아예 빠진다.
+# weight : 기본 가중치. 최종 가중치 = weight × depth 배수(config/weights.yaml).
+# synonyms : 원본 데이터 표기 흔들림 흡수용. 처음 보는 값 처리는 docs/unknown_attribute_policy.md.
+attributes:
+  - id: category
+    name: 카테고리
+    depth: 1
+    type: tree
+    weight: 3.0
+    applies_to: [snack, ramen]
+    definition: taxonomy/categories.yaml 의 말단 노드. 같은 노드면 1, 공통 조상이 깊을수록 높다.
+
+  - id: base
+    name: 주원료
+    depth: 1
+    type: multi
+    weight: 1.5
+    applies_to: [snack]
+    definition: 원재료명 상위에 오며 맛·식감을 결정하는 원료. 첨가 소량 원료는 넣지 않는다.
+    values:
+      감자: {definition: 생감자 또는 감자 플레이크·전분이 주원료.}
+      옥수수: {definition: 옥수수 가루·콘그릿츠가 주원료., synonyms: [콘, 옥분]}
+      밀가루: {definition: 소맥분이 주원료., synonyms: [소맥분, 밀]}
+      통밀: {definition: 통밀·전립분이 주원료.}
+      쌀: {definition: 쌀가루·현미가 주원료.}
+      땅콩: {definition: 땅콩이 핵심 원료.}
+      카카오: {definition: 초콜릿·코코아가 핵심 원료., synonyms: [초콜릿, 코코아]}
+      당류: {definition: 설탕·물엿·포도당 등이 주성분(캔디·젤리·껌)., synonyms: [설탕, 물엿]}
+
+  - id: fried
+    name: 유탕여부
+    depth: 1
+    type: single
+    weight: 1.0
+    applies_to: [snack, ramen]
+    definition: 기름에 튀기는 공정을 거쳤는가. 기름진 풍미·칼로리 인식에 영향. 라면은 면 기준.
+    values:
+      유탕: {definition: 기름에 튀김.}
+      비유탕: {definition: 굽기·건조·팽화 등 튀기지 않음., synonyms: [논프라이, 건면]}
+
+  - id: cook_method
+    name: 제조방식
+    depth: 1
+    type: single
+    weight: 1.5
+    applies_to: [snack]
+    definition: 최종 식감을 결정하는 핵심 공정.
+    values:
+      튀김: {definition: 반죽·원물을 기름에 튀김.}
+      구움: {definition: 오븐에 구움.}
+      압출팽화: {definition: 고압 압출로 부풀림., synonyms: [팽화, 압출]}
+      성형: {definition: 반죽을 틀로 찍어 모양을 낸 뒤 가열.}
+      케이크: {definition: 케이크 시트를 굽고 크림 등을 넣어 조립.}
+      성형초콜릿: {definition: 초콜릿을 틀에 부어 굳힘.}
+      당류가공: {definition: 당액을 졸이거나 굳힘(캔디·젤리·껌).}
+
+  - id: flavor
+    name: 맛계열
+    depth: 2
+    type: multi
+    weight: 2.0
+    applies_to: [snack, ramen]
+    definition: 먹었을 때 지배적으로 느껴지는 맛. 최대 3개까지 지배적인 것만 붙인다.
+    values:
+      짠맛: {definition: 소금·간장 등 짭짤함이 중심., synonyms: [짭짤, 소금]}
+      단맛: {definition: 설탕 계열 단맛이 중심., synonyms: [달콤]}
+      매운맛: {definition: 고추·캡사이신 매운맛이 중심., synonyms: [매콤, 얼큰, 청양]}
+      고소한맛: {definition: 곡물·견과·기름의 고소함이 중심., synonyms: [고소]}
+      감칠맛: {definition: 육수·MSG 계열 감칠맛이 중심.}
+      새콤한맛: {definition: 산미가 중심., synonyms: [새콤, 신맛]}
+      버터: {definition: 버터·우유 풍미가 중심.}
+      치즈: {definition: 치즈 풍미가 중심.}
+      초코: {definition: 초콜릿 풍미가 중심., synonyms: [초콜릿맛]}
+      과일: {definition: 과일 향·맛이 중심.}
+      해산물: {definition: 새우·게·오징어·해물 풍미가 중심., synonyms: [해물]}
+      고기: {definition: 소·돼지·닭 육수 풍미가 중심.}
+      양파: {definition: 양파·마늘 등 향신채 풍미가 중심.}
+      민트: {definition: 시원한 민트·자일리톨 향.}
+
+  - id: spicy
+    name: 맵기
+    depth: 2
+    type: ordinal
+    weight: 1.5
+    applies_to: [snack, ramen]
+    definition: 일반 소비자가 느끼는 매운 정도. 신라면을 '중'의 기준점으로 삼는다.
+    values:
+      없음: {definition: 매운맛이 느껴지지 않음.}
+      약: {definition: 살짝 칼칼함. 아이도 먹을 수 있는 수준.}
+      중: {definition: 신라면 수준의 확실한 매운맛.}
+      강: {definition: 신라면보다 확연히 매움.}
+      극강: {definition: 불닭볶음면 수준 이상. 매운맛 자체가 구매 이유.}
+
+  - id: texture
+    name: 식감
+    depth: 2
+    type: multi
+    weight: 1.5
+    applies_to: [snack]
+    definition: 씹을 때 지배적인 식감. 최대 2개.
+    values:
+      바삭: {definition: 단단하게 부서지는 크런치 식감.}
+      파삭: {definition: 얇고 가볍게 부서지는 식감.}
+      사르르: {definition: 입에서 녹듯 사라지는 식감(팽화 스낵).}
+      부드러움: {definition: 케이크·빵처럼 폭신한 식감.}
+      촉촉: {definition: 수분감이 있어 눅진한 식감.}
+      쫀득: {definition: 탄력 있게 씹히는 식감.}
+      녹는: {definition: 체온에 녹는 식감(초콜릿).}
+
+  - id: shape
+    name: 형태
+    depth: 2
+    type: single
+    weight: 0.5
+    applies_to: [snack]
+    definition: 한 조각의 겉모양.
+    values:
+      슬라이스: {definition: 얇은 판 조각.}
+      다층칩: {definition: 여러 겹이 겹친 칩.}
+      링: {definition: 고리 모양.}
+      스틱: {definition: 길쭉한 막대.}
+      알갱이: {definition: 한입 크기의 작은 볼·알갱이.}
+      원뿔: {definition: 원뿔(고깔) 모양.}
+      원판: {definition: 둥글거나 네모난 납작한 비스킷.}
+      개별케이크: {definition: 한 개씩 개별포장된 케이크.}
+      판: {definition: 판형(초콜릿 판).}
+      캐릭터: {definition: 동물·캐릭터 모양.}
+      기타: {definition: 위에 해당하지 않는 모양.}
+
+  - id: container
+    name: 포장형태
+    depth: 1
+    type: single
+    weight: 1.5
+    applies_to: [ramen]
+    definition: 면이 담긴 포장. 조리 장소·방법을 결정한다(봉지=냄비, 컵=뜨거운물).
+    values:
+      봉지: {definition: 냄비에 끓여 먹는 봉지면.}
+      큰컵: {definition: 뜨거운 물을 붓는 대용량 용기면.}
+      작은컵: {definition: 뜨거운 물을 붓는 소용량 용기면.}
+
+  - id: style
+    name: 조리형태
+    depth: 1
+    type: single
+    weight: 2.0
+    applies_to: [ramen]
+    definition: 완성된 음식의 형태.
+    values:
+      국물: {definition: 국물과 함께 먹음.}
+      짜장: {definition: 물을 버리고 춘장 소스에 비빔.}
+      볶음: {definition: 물을 버리고 양념에 볶듯 비빔.}
+      비빔: {definition: 찬물에 헹궈 차가운 소스에 비빔.}
+
+  - id: broth
+    name: 국물베이스
+    depth: 2
+    type: single
+    weight: 1.5
+    applies_to: [ramen]
+    definition: 국물·소스 맛의 바탕이 되는 재료. 국물 없는 라면은 소스 베이스.
+    values:
+      소고기: {definition: 소고기 육수 계열.}
+      사골: {definition: 사골·곰탕 계열 하얀 육수.}
+      해물: {definition: 해물 육수 계열.}
+      가쓰오: {definition: 가쓰오부시·간장 계열(우동).}
+      된장: {definition: 된장 계열.}
+      춘장: {definition: 춘장 소스.}
+      고추장: {definition: 고추장·고춧가루 양념 소스.}
+      참깨: {definition: 참깨·계란 풍미 계열.}
+
+  - id: noodle
+    name: 면
+    depth: 2
+    type: single
+    weight: 1.0
+    applies_to: [ramen]
+    definition: 면의 굵기·종류.
+    values:
+      일반: {definition: 일반 굵기 유탕면.}
+      굵은면: {definition: 일반보다 굵은 면(우동·너구리 등).}
+      얇은면: {definition: 일반보다 얇은 면.}
+      당면: {definition: 전분 당면.}
+
+  - id: price_band
+    name: 가격대
+    depth: 3
+    type: ordinal
+    weight: 1.0
+    applies_to: [snack, ramen]
+    definition: 편의점 단품 정상가 기준 구간.
+    values:
+      ~1500: {definition: "1,500원 이하."}
+      1500~2500: {definition: "1,500원 초과 2,500원 이하."}
+      2500~4000: {definition: "2,500원 초과 4,000원 이하."}
+      4000~: {definition: "4,000원 초과."}
+
+  - id: size
+    name: 용량
+    depth: 3
+    type: ordinal
+    weight: 0.5
+    applies_to: [snack, ramen]
+    definition: 1회 구매 단위가 몇 명·몇 끼 분량인가.
+    values:
+      소: {definition: 1인 한 번에 다 먹는 양 이하.}
+      중: {definition: 1인 넉넉하거나 2인 나눠 먹는 양.}
+      대: {definition: 여럿이 나눠 먹는 양.}
+
+  - id: occasion
+    name: 섭취상황
+    depth: 3
+    type: multi
+    weight: 1.5
+    applies_to: [snack, ramen]
+    definition: 이 상품을 주로 사는 상황. 최대 3개.
+    values:
+      간식: {definition: 식사 사이 가볍게 먹음.}
+      술안주: {definition: 술과 함께 먹음.}
+      식사대용: {definition: 한 끼를 대신함.}
+      야식: {definition: 늦은 밤에 먹음.}
+      디저트: {definition: 식후 단것으로 먹음.}
+      나눔: {definition: 여럿이 나눠 먹거나 선물·사무실용.}
+      입가심: {definition: 식후·흡연 후 입을 정리.}
+      해장: {definition: 음주 다음 날 먹음.}
+
+  - id: target
+    name: 주타깃
+    depth: 4
+    type: single
+    weight: 0.5
+    applies_to: [snack, ramen]
+    definition: 주 구매층.
+    values:
+      전연령: {definition: 연령 구분 없음.}
+      어린이: {definition: 어린이 선호가 뚜렷함.}
+      성인: {definition: 성인 선호가 뚜렷함(안주·고매운맛 등).}
+
+  - id: maker
+    name: 제조사
+    depth: 4
+    type: open
+    weight: 0.5
+    applies_to: [snack, ramen]
+    definition: 판매 제조사(브랜드 오너). 값 목록이 열려 있어 처음 보는 제조사도 그대로 받는다.
