@@ -1,6 +1,6 @@
 # TPO(Time·Place·Occasion) 온톨로지.
 # 사람이 상품마다 TPO를 찍지 않는다. 상품 속성 → TPO 추론 규칙으로 유도해서, 새 상품도 속성만 채우면 TPO가 따라온다.
-# 섭취상황(occasion)은 taxonomy/schema.yaml 에 이미 있으므로 여기서는 시간·장소·날씨 차원을 정의한다.
+# 구매상황(occasion)은 taxonomy/schema.yaml 에 이미 있으므로 여기서는 시간·장소·날씨 차원을 정의한다.
 dimensions:
   time:
     name: 시간대
@@ -10,13 +10,13 @@ dimensions:
       점심: {definition: "11~14시. 식사와 식후 디저트."}
       오후: {definition: "14~18시. 간식 시간."}
       저녁: {definition: "18~22시. 식사·반주."}
-      심야: {definition: "22~02시. 야식·혼술."}
+      심야: {definition: "22~02시. 야식·혼술·급한 외박."}
   place:
     name: 장소
-    definition: 상품을 먹는 장소. 조리 도구·나눔 여부를 결정한다.
+    definition: 상품을 쓰는 장소. 조리 도구·나눔 여부를 결정한다.
     values:
       집: {definition: 냄비·전자레인지가 있고 혼자 또는 가족과 먹는다.}
-      사무실·학교: {definition: 뜨거운 물 정도만 있고 냄비 조리는 불가. 동료와 나눠 먹는다.}
+      사무실·학교: {definition: 뜨거운 물 정도만 있고 냄비 조리는 불가. 동료와 나눠 먹는다. 음주 불가.}
       야외·캠핑: {definition: 버너가 있을 수 있고 여럿이 나눠 먹는다. 날씨 영향을 받는다.}
       이동중: {definition: 걸으면서·차 안에서 한 손으로 먹는다. 조리 불가.}
   weather:
@@ -24,13 +24,14 @@ dimensions:
     definition: 구매 결정에 영향을 주는 날씨.
     values:
       더움: {definition: 한여름. 시원한 음식 선호, 초콜릿이 녹는다.}
-      추움: {definition: 한겨울. 뜨거운 국물 선호.}
-      비: {definition: 비 오는 날. 국물·전 계열 선호.}
+      추움: {definition: 한겨울. 뜨거운 국물·온장 음료 선호.}
+      비: {definition: 비 오는 날. 국물·막걸리·우산.}
 
 # 추론 규칙. when 조건(AND, 값 목록은 OR)을 만족하면 then 의 TPO를 붙이고 exclude 의 TPO는 뺀다.
 # exclude 는 then 보다 우선한다(어떤 규칙에서 붙었든 지운다).
 # 상품에 어떤 차원 값이 하나도 안 붙으면 그 차원은 '중립'(어떤 장면에도 막히지 않음).
 rules:
+  # 먹는 상황
   - {when: {occasion: 술안주}, then: {time: [저녁, 심야], place: [집, 야외·캠핑]}}
   - {when: {occasion: 야식}, then: {time: [심야], place: [집]}}
   - {when: {occasion: 식사대용}, then: {time: [점심, 저녁], place: [집, 사무실·학교]}}
@@ -39,6 +40,21 @@ rules:
   - {when: {occasion: 나눔}, then: {place: [사무실·학교, 야외·캠핑]}}
   - {when: {occasion: 해장}, then: {time: [아침, 점심]}}
   - {when: {occasion: 입가심}, then: {time: [점심, 저녁], place: [사무실·학교, 이동중]}}
+  # 마시는 상황
+  - {when: {occasion: 갈증해소}, then: {time: [오후], place: [이동중, 야외·캠핑, 사무실·학교], weather: [더움]}}
+  - {when: {occasion: 각성}, then: {time: [아침, 오후, 심야], place: [사무실·학교, 이동중]}}
+  - {when: {occasion: 식사곁들임}, then: {time: [점심, 저녁]}}
+  - {when: {occasion: 음주}, then: {time: [저녁, 심야], place: [집, 야외·캠핑]}}
+  - {when: {category: BEV.ALC}, exclude: {time: [아침], place: [사무실·학교, 이동중]}}
+  - {when: {category: BEV.ALC.MAKGEOLLI}, then: {weather: [비]}}
+  - {when: {category: BEV.FUNC}, then: {time: [저녁, 심야]}}   # 숙취해소는 마시기 전·자기 전에도 산다
+  - {when: {temp: 따뜻하게}, then: {weather: [추움]}, exclude: {weather: [더움]}}
+  - {when: {temp: 차갑게, carbonation: 탄산}, then: {weather: [더움]}}
+  # 생필품 상황
+  - {when: {occasion: 외박·여행}, then: {time: [심야], place: [이동중]}}
+  - {when: {occasion: 비축}, then: {place: [집]}}
+  - {when: {purpose: 우천}, then: {weather: [비]}}
+  # 조리·보관 제약
   - {when: {container: [작은컵, 큰컵]}, then: {place: [사무실·학교, 야외·캠핑]}}
   - {when: {container: 봉지}, then: {place: [야외·캠핑]}, exclude: {place: [사무실·학교, 이동중]}}
   - {when: {style: 국물}, then: {weather: [추움, 비]}, exclude: {weather: [더움]}}
@@ -51,43 +67,57 @@ scenes:
   - id: late_night_solo
     name: 심야 혼술·야식
     tpo: {time: 심야, place: 집}
-    budget: 5000
+    budget: 9000
     slots:
       - {role: 메인, cond: {type: ramen}}
       - {role: 안주, cond: {type: snack, occasion: 술안주}}
+      - {role: 술, cond: {type: beverage, occasion: 음주}}
   - id: office_lunch_cup
     name: 사무실 점심 컵라면
     tpo: {time: 점심, place: 사무실·학교}
-    budget: 5000
+    budget: 7000
     slots:
       - {role: 메인, cond: {type: ramen, container: [작은컵, 큰컵]}}
+      - {role: 음료, cond: {type: beverage, occasion: 식사곁들임}}
       - {role: 후식, cond: {type: snack, occasion: 디저트}}
   - id: office_share
     name: 오후 사무실 나눔 간식
     tpo: {time: 오후, place: 사무실·학교}
-    budget: 8000
+    budget: 10000
     slots:
       - {role: 나눔, cond: {type: snack, occasion: 나눔}}
       - {role: 곁들임, cond: {type: snack, occasion: 간식}}
+      - {role: 커피, cond: {type: beverage, occasion: 각성}}
   - id: camping_night
     name: 캠핑 저녁
     tpo: {time: 저녁, place: 야외·캠핑}
-    budget: 10000
+    budget: 16000
     slots:
       - {role: 메인, cond: {type: ramen, container: 봉지}}
       - {role: 안주, cond: {type: snack, occasion: 술안주}}
       - {role: 나눔, cond: {type: snack, occasion: 나눔}}
+      - {role: 술, cond: {category: BEV.ALC.BEER}}
   - id: hot_day_lunch
     name: 더운 날 점심
     tpo: {time: 점심, weather: 더움}
-    budget: 5000
+    budget: 7000
     slots:
       - {role: 메인, cond: {type: ramen}}
+      - {role: 음료, cond: {type: beverage, occasion: [갈증해소, 식사곁들임]}}
       - {role: 후식, cond: {type: snack, occasion: 디저트}}
-  - id: rainy_evening
-    name: 비 오는 날 저녁
+  - id: rainy_commute
+    name: 비 오는 날 퇴근길
     tpo: {time: 저녁, weather: 비}
-    budget: 6000
+    budget: 14000
     slots:
+      - {role: 우산, cond: {category: HOU.RAIN}}
       - {role: 메인, cond: {type: ramen, style: 국물}}
-      - {role: 곁들임, cond: {type: snack}}
+      - {role: 술, cond: {type: beverage, occasion: 음주}}
+  - id: sudden_overnight
+    name: 갑작스런 외박
+    tpo: {time: 심야}
+    budget: 15000
+    slots:
+      - {role: 세면, cond: {category: HOU.ORAL.KIT}}
+      - {role: 위생, cond: {type: household, occasion: 외박·여행}}
+      - {role: 다음날, cond: {type: beverage, occasion: 해장}}

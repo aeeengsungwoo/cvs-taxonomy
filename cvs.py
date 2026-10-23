@@ -73,7 +73,8 @@ def load_products(attrs, cats):
                 continue
             raws = [r.strip() for r in (row.get(aid) or "").split("|") if r.strip()]
             if not raws:
-                issues.append((p["id"], p["name"], aid, "", "missing"))
+                if not a.get("optional"):  # optional 속성의 빈 칸은 '해당 없음'
+                    issues.append((p["id"], p["name"], aid, "", "missing"))
                 continue
             known = []
             for r in raws:
@@ -88,11 +89,13 @@ def load_products(attrs, cats):
     return products, issues
 
 
+DEFAULT_W = {"max_depth": 4, "depth_mult": {1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0}}
+
+
 def load_weights():
+    """type별 가중치 {snack: {max_depth, depth_mult}, ...}. 카테고리마다 쓰는 속성이 달라 뎁스도 따로 정한다."""
     path = ROOT / "config/weights.yaml"
-    if path.exists():
-        return read_yaml("config/weights.yaml")
-    return {"max_depth": 4, "depth_mult": {1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0}}
+    return read_yaml("config/weights.yaml") if path.exists() else {}
 
 
 def load_gold():
@@ -127,6 +130,7 @@ def score(p, q, attrs, w):
     """
     if p["type"] != q["type"]:
         return 0.0
+    w = w.get(p["type"], DEFAULT_W)
     num = den = possible = 0.0
     for aid, a in attrs.items():
         if a["depth"] > w["max_depth"] or p["type"] not in a["applies_to"]:
@@ -148,10 +152,12 @@ def ranked(products, attrs, w, pid):
     return sorted(cands, reverse=True)
 
 
-def evaluate(products, attrs, w, gold):
-    """AUC: 라벨된 쌍에서 정답(대체 O)이 오답(대체 X)보다 점수가 높은 비율.
+def evaluate(products, attrs, w, gold, blocked):
+    """정책까지 적용한 최종 추천 기준으로 잰다(정책 차단 쌍 = 점수 0).
+    AUC: 라벨된 쌍에서 정답(대체 O)이 오답(대체 X)보다 점수가 높은 비율.
     MRR: 정답 후보가 같은 type 전체 후보 중 몇 등인지의 역수 평균(다른 정답은 순위 계산에서 제외)."""
-    s = {pair: score(products[pair[0]], products[pair[1]], attrs, w) for pair in gold}
+    final = lambda a, b: 0.0 if frozenset((a, b)) in blocked else score(products[a], products[b], attrs, w)
+    s = {pair: final(*pair) for pair in gold}
     pos = [v for k, v in s.items() if gold[k] == 1]
     neg = [v for k, v in s.items() if gold[k] == 0]
     auc = sum((x > y) + 0.5 * (x == y) for x in pos for y in neg) / (len(pos) * len(neg))
@@ -159,7 +165,7 @@ def evaluate(products, attrs, w, gold):
     for (a, b), lab in gold.items():
         if lab != 1:
             continue
-        others = [sc for sc, q in ranked(products, attrs, w, a)
+        others = [final(a, q) for _, q in ranked(products, attrs, w, a)
                   if q != b and label_of(gold, a, q) != 1]
         rr.append(1 / (1 + sum(o > s[(a, b)] for o in others)))
     return auc, sum(rr) / len(rr)
@@ -187,29 +193,37 @@ def cmd_validate(args):
 
 
 def cmd_sweep(args):
-    attrs, cats = load_taxonomy()
-    products, _ = load_products(attrs, cats)
+    attrs, cats, products, _, policy, _ = load_context()
     gold = load_gold()
-    rows = []
-    for d in range(1, 5):
-        best = None
-        for mult in itertools.product([0.25, 0.5, 1.0, 2.0], repeat=d - 1):  # 뎁스1 배수는 1로 고정(스케일 기준)
-            w = {"max_depth": d, "depth_mult": {1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0}}
-            w["depth_mult"].update({i + 2: m for i, m in enumerate(mult)})
-            auc, mrr = evaluate(products, attrs, w, gold)
-            obj = (auc + mrr) / 2
-            if best is None or obj > best[0] + 1e-9:
-                best = (obj, auc, mrr, w)
-        rows.append(best)
-        print(f"뎁스≤{d}  AUC {best[1]:.3f}  MRR {best[2]:.3f}  종합 {best[0]:.3f}  배수 {best[3]['depth_mult']}")
-    top = max(r[0] for r in rows)
-    obj, auc, mrr, w = next(r for r in rows if r[0] >= top - args.tol)  # 거의 같으면 얕은 뎁스
-    w["metrics"] = {"auc": round(auc, 4), "mrr": round(mrr, 4), "objective": round(obj, 4),
-                    "gold_pairs": len(gold)}
-    header = "# python cvs.py sweep 이 생성. 직접 고치지 말고 검수셋을 늘린 뒤 다시 sweep 할 것.\n"
+    blocked = {frozenset((p["id"], q["id"])) for p, q in itertools.combinations(products.values(), 2)
+               if p["type"] == q["type"] and substitute_violations(p, q, attrs, policy)}
+    result = {}
+    for typ in dict.fromkeys(p["type"] for p in products.values()):
+        g = {k: v for k, v in gold.items() if products[k[0]]["type"] == typ}
+        if not any(g.values()) or all(g.values()):
+            print(f"[{typ}] 정답셋에 O/X가 둘 다 있어야 잴 수 있음 — 기본값 사용")
+            continue
+        rows = []
+        for d in range(1, 5):
+            best = None
+            for mult in itertools.product([0.25, 0.5, 1.0, 2.0], repeat=d - 1):  # 뎁스1 배수는 1로 고정(스케일 기준)
+                w = {"max_depth": d, "depth_mult": {1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0}}
+                w["depth_mult"].update({i + 2: m for i, m in enumerate(mult)})
+                auc, mrr = evaluate(products, attrs, {typ: w}, g, blocked)
+                obj = (auc + mrr) / 2
+                if best is None or obj > best[0] + 1e-9:
+                    best = (obj, auc, mrr, w)
+            rows.append(best)
+            print(f"[{typ}] 뎁스≤{d}  AUC {best[1]:.3f}  MRR {best[2]:.3f}  종합 {best[0]:.3f}  배수 {best[3]['depth_mult']}")
+        top = max(r[0] for r in rows)
+        obj, auc, mrr, w = next(r for r in rows if r[0] >= top - args.tol)  # 거의 같으면 얕은 뎁스
+        w["metrics"] = {"auc": round(auc, 4), "mrr": round(mrr, 4), "objective": round(obj, 4), "gold_pairs": len(g)}
+        result[typ] = w
+        print(f"[{typ}] → 뎁스≤{w['max_depth']} 선택\n")
+    header = "# python cvs.py sweep 이 생성(type별 뎁스·배수). 직접 고치지 말고 검수셋을 늘린 뒤 다시 sweep 할 것.\n"
     (ROOT / "config/weights.yaml").write_text(
-        header + yaml.safe_dump(w, allow_unicode=True, sort_keys=False), encoding="utf-8")
-    print(f"→ 선택: 뎁스≤{w['max_depth']} (최고 대비 {args.tol} 이내면 얕은 쪽) · config/weights.yaml 저장")
+        header + yaml.safe_dump(result, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    print(f"config/weights.yaml 저장 (최고 대비 {args.tol} 이내면 얕은 뎁스)")
 
 
 def cmd_review(args):
@@ -304,7 +318,7 @@ def substitute_violations(p, q, attrs, policy):
         return ["상품간: type 다름"]
     rule, out = policy["substitute"][p["type"]], []
     if "category_level" in rule and cat_prefix(p, rule["category_level"]) != cat_prefix(q, rule["category_level"]):
-        out.append("아이덴티티: 대분류 다름")
+        out.append(f"아이덴티티: 카테고리 {rule['category_level']}단계 다름")
     for aid in rule.get("same", []):
         a, b = p["attrs"].get(aid), q["attrs"].get(aid)
         if a is not None and b is not None and a != b:
@@ -322,8 +336,19 @@ def substitute_violations(p, q, attrs, policy):
     return out
 
 
+def restricted_violations(p, q, policy):
+    """제한 상품(주류 등)을 금지 대상(어린이 상품 등)과 묶으면 위반."""
+    out = []
+    for r in policy.get("restricted", []):
+        for x, y in ((p, q), (q, p)):
+            if matches(x, r["items"]) and matches(y, r["never_with"]):
+                out.append(f"상품간: {r['name']}")
+                break
+    return out
+
+
 def complement_violations(p, q, policy):
-    rule, out = policy["complement"], []
+    rule, out = policy["complement"], restricted_violations(p, q, policy)
     if rule.get("forbid_same_identity") and identity(p, policy) == identity(q, policy):
         out.append("아이덴티티: 같은 정체성(보완 아닌 대체)")
     for dim in rule.get("require_overlap", []):
@@ -415,9 +440,10 @@ def build_combos(products, policy, tpo, comps):
             pairs = list(itertools.combinations(items, 2))
             combos.append((round(sum(compat(p, q) for p, q in pairs) / len(pairs), 3), total, items))
         combos.sort(key=lambda c: (-c[0], c[1]))
+        sole = {cands[0]["id"] for cands in slots if len(cands) == 1}  # 후보가 하나뿐인 슬롯(우산 등)은 재사용 제한 없음
         picked, used = [], {}
         for c in combos:
-            if all(used.get(p["id"], 0) < cfg["max_reuse"] for p in c[2]):
+            if all(p["id"] in sole or used.get(p["id"], 0) < cfg["max_reuse"] for p in c[2]):
                 picked.append(c)
                 for p in c[2]:
                     used[p["id"]] = used.get(p["id"], 0) + 1
@@ -465,6 +491,8 @@ def to_cypher(products, attrs, cats, policy, tpo, subs, comps, combos, trends, w
                        f"t.value = {q(v)}, t.definition = {q(vd['definition'])};")
     for pid, kind in [("identity", "아이덴티티"), ("substitute", "대체재"), ("complement", "보완재"), ("combo", "콤보"), ("trend", "트렌드")]:
         out.append(f"MERGE (x:Policy {{id: {q(pid)}}}) SET x.name = {q(kind)}, x.definition = {q(policy[pid]['definition'])};")
+    for r in policy.get("restricted", []):
+        out.append(f"MERGE (x:Policy {{id: {q('restricted:' + r['name'])}}}) SET x.name = {q(r['name'])}, x.definition = {q(r['definition'])};")
     for p in products.values():
         out.append(f"MERGE {pmatch('p', p['id'])} SET p.name = {q(p['name'])}, p.type = {q(p['type'])}, "
                    f"p.identity = {q('/'.join(str(x) for x in identity(p, policy)))};")
@@ -482,7 +510,7 @@ def to_cypher(products, attrs, cats, policy, tpo, subs, comps, combos, trends, w
                 out.append(f"MATCH {pmatch('p', p['id'])}, (t:TPO {{key: {q(f'{dim}={v}')}}}) MERGE (p)-[:AVOIDS]->(t);")
     for (a, b), e in subs.items():
         out.append(f"MATCH {pmatch('a', a)}, {pmatch('b', b)} CREATE (a)-[:SUBSTITUTE {{strength: {e['strength']}, "
-                   f"model_score: {e['model_score']}, review: {q(e['review'])}, depth: {w['max_depth']}}}]->(b);")
+                   f"model_score: {e['model_score']}, review: {q(e['review'])}, depth: {w.get(products[a]['type'], DEFAULT_W)['max_depth']}}}]->(b);")
     for (a, b), e in comps.items():
         out.append(f"MATCH {pmatch('a', a)}, {pmatch('b', b)} CREATE (a)-[:COMPLEMENT {{strength: {e['strength']}, "
                    f"reason: {q(e['reason'])}, source: {q(e['source'])}}}]->(b);")

@@ -111,3 +111,123 @@
         - id: RMN.DRY.BIBIM
           name: 비빔
           definition: 찬물에 헹군 면을 새콤달콤한 초고추장 소스에 비벼 차게 먹는 라면.
+- id: BEV
+  name: 음료
+  definition: 마시는 상품. 갈증해소·각성·식사곁들임·음주 등 마시는 목적이 정체성을 가른다.
+  children:
+    - id: BEV.CARB
+      name: 탄산음료
+      definition: 탄산이 들어간 청량음료.
+      children:
+        - id: BEV.CARB.COLA
+          name: 콜라
+          definition: 콜라 향의 갈색 탄산음료.
+        - id: BEV.CARB.CIDER
+          name: 사이다
+          definition: 레몬·라임 향의 투명 탄산음료.
+    - id: BEV.COFFEE
+      name: 커피
+      definition: 커피 추출액이 주원료인 음료. 각성이 주 목적.
+      children:
+        - id: BEV.COFFEE.BLACK
+          name: 블랙커피
+          definition: 당·우유 없이 커피 맛이 중심인 아메리카노류.
+        - id: BEV.COFFEE.SWEET
+          name: 믹스·캔커피
+          definition: 설탕·크림이 들어간 단 캔커피.
+        - id: BEV.COFFEE.LATTE
+          name: 라떼·컵커피
+          definition: 우유가 들어간 라떼류. 주로 컵 용기.
+    - id: BEV.MILK
+      name: 우유
+      definition: 우유가 주원료인 음료.
+      children:
+        - id: BEV.MILK.WHITE
+          name: 흰우유
+          definition: 가공하지 않은 흰 우유.
+        - id: BEV.MILK.FLAVOR
+          name: 가공우유
+          definition: 바나나·초코 등 맛을 더한 우유.
+    - id: BEV.SPORTS
+      name: 이온음료
+      definition: 수분·전해질 보충용 음료.
+    - id: BEV.TEA
+      name: 차음료
+      definition: 보리·옥수수수염 등을 우린 무가당 차.
+    - id: BEV.WATER
+      name: 생수
+      definition: 마시는 물.
+    - id: BEV.ENERGY
+      name: 에너지드링크
+      definition: 카페인·타우린 함량이 높은 각성 음료.
+    - id: BEV.FUNC
+      name: 숙취해소음료
+      definition: 음주 전후 숙취 완화를 내세운 기능성 음료.
+    - id: BEV.JUICE
+      name: 주스
+      definition: 과즙이 주원료인 음료.
+    - id: BEV.ALC
+      name: 주류
+      definition: 알코올 음료. 성인만 구매 가능하고 추천 제한 정책(restricted)을 받는다.
+      children:
+        - id: BEV.ALC.BEER
+          name: 맥주
+          definition: 맥아를 발효한 탄산 주류.
+        - id: BEV.ALC.SOJU
+          name: 소주
+          definition: 희석식 소주.
+        - id: BEV.ALC.MAKGEOLLI
+          name: 막걸리
+          definition: 쌀을 발효한 탁주.
+- id: HOU
+  name: 생필품
+  definition: 먹지 않는 일상 소모품. 맛·식감 축이 없고 용도·규격이 정체성이며, 편의점에서는 갑자기 필요해서 사는 긴급 구매가 중심.
+  children:
+    - id: HOU.PAPER
+      name: 화장지·티슈
+      definition: 닦는 데 쓰는 종이 제품.
+      children:
+        - id: HOU.PAPER.DRY
+          name: 화장지·각티슈
+          definition: 마른 종이 티슈.
+        - id: HOU.PAPER.WET
+          name: 물티슈
+          definition: 물기를 머금은 티슈.
+    - id: HOU.ORAL
+      name: 구강용품
+      definition: 이·입을 관리하는 용품.
+      children:
+        - id: HOU.ORAL.BRUSH
+          name: 칫솔
+          definition: 이를 닦는 솔.
+        - id: HOU.ORAL.PASTE
+          name: 치약
+          definition: 칫솔에 묻혀 쓰는 세정제.
+        - id: HOU.ORAL.KIT
+          name: 휴대용 칫솔세트
+          definition: 칫솔과 치약을 한 케이스에 담은 여행용 세트.
+        - id: HOU.ORAL.RINSE
+          name: 구강청결제
+          definition: 입을 헹구는 가글액.
+    - id: HOU.SHAVE
+      name: 면도용품
+      definition: 면도에 쓰는 용품.
+      children:
+        - id: HOU.SHAVE.RAZOR
+          name: 면도기
+          definition: 수동 면도기.
+        - id: HOU.SHAVE.FOAM
+          name: 쉐이빙폼
+          definition: 면도 전 바르는 거품.
+    - id: HOU.FEM
+      name: 생리용품
+      definition: 생리대 등 생리 위생용품. 크기 규격이 맞아야 대체 가능.
+    - id: HOU.BATTERY
+      name: 건전지
+      definition: 일회용 건전지. 크기 규격(AA/AAA)이 맞아야 대체 가능.
+    - id: HOU.MASK
+      name: 마스크
+      definition: 보건용 마스크.
+    - id: HOU.RAIN
+      name: 우산
+      definition: 갑작스런 비에 사는 우산.

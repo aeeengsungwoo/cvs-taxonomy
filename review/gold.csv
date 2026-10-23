@@ -48,3 +48,32 @@ R11,R04,1,seed,순한 국물
 R12,R11,0,seed,우동 vs 곰탕
 R12,R02,0,seed,우동 vs 얼큰
 R14,R01,0,seed,극강볶음 vs 국물
+B02,B03,1,seed,제로 콜라
+B01,B04,1,seed,일반 탄산
+B01,B02,0,seed,제로 찾는 손님에게 일반 콜라 X
+B04,B05,0,seed,제로 vs 일반
+B06,B09,1,seed,단 캔커피
+B06,B07,0,seed,단 커피 vs 블랙
+B08,B06,1,seed,커피 각성
+B11,B12,1,seed,가공우유
+B10,B11,0,seed,흰우유 vs 가공우유
+B13,B14,1,seed,이온음료
+B15,B16,1,seed,무가당 곡물차
+B17,B18,1,seed,생수
+B19,B20,1,seed,에너지드링크
+B19,B06,0,seed,에너지드링크 vs 커피
+B21,B13,0,seed,숙취해소 vs 이온음료
+B23,B24,1,seed,맥주
+B25,B26,1,seed,소주
+B23,B25,0,seed,맥주 vs 소주
+B23,B27,0,seed,맥주 vs 막걸리
+B22,B11,0,seed,주스 vs 가공우유
+H01,H02,1,seed,마른 티슈
+H01,H03,0,seed,마른 티슈 vs 물티슈
+H13,H14,1,seed,AA 건전지
+H13,H15,0,seed,AA vs AAA 규격
+H10,H11,0,seed,생리대 크기 규격
+H04,H06,1,seed,칫솔
+H04,H05,0,seed,칫솔 vs 치약(보완)
+H08,H09,0,seed,면도기 vs 폼(보완)
+H16,H17,0,seed,마스크 vs 우산
