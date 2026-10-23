@@ -7,6 +7,9 @@
   python cvs.py review import     검수 끝난 queue → review/gold.csv
   python cvs.py anchor            대체 기준(라인·메뉴·카테고리) 판정 → review/anchor.csv (갈리면 사람이 decision 칸에)
   python cvs.py impact            속성 하나씩 빼 보고 유지·보류·제거 판정 → out/attribute_impact.csv
+  python cvs.py triage            벡터 근처 후보 자동 판정 + 관리자 질문 → review/auto_labels.csv, review/admin_queue.csv
+  python cvs.py admin             관리자 답 반영 (상품쌍 → gold.csv, 정책 문항 → 방향 정책)
+  python cvs.py oos 코카콜라      품절 시 대신 권할 상품과 이유 (--also-out, --context weather=더움, --all)
   python cvs.py graph [--push]    out/graph.cypher, out/edges.csv, out/audit.md 생성 (--push 면 Neo4j에 바로 적재)
 """
 import argparse
@@ -17,6 +20,7 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 ROOT = Path(__file__).resolve().parent
@@ -104,8 +108,9 @@ def load_gold():
     return {(r["anchor"], r["candidate"]): int(r["label"]) for r in read_csv("review/gold.csv")}
 
 
-def label_of(gold, a, b):
-    return gold.get((a, b), gold.get((b, a)))
+def label_of(gold, a, b, directional=False):
+    """a 찾는 손님에게 b. 방향 속성이 다른 쌍이면 반대 방향 라벨을 빌려 쓰지 않는다(코카콜라→제로 ≠ 제로→코카콜라)."""
+    return gold.get((a, b), None if directional else gold.get((b, a)))
 
 
 # ── 점수 ──────────────────────────────────────────────────────────
@@ -158,7 +163,7 @@ def evaluate(products, attrs, w, gold, blocked):
     """정책까지 적용한 최종 추천 기준으로 잰다(정책 차단 쌍 = 점수 0).
     AUC: 라벨된 쌍에서 정답(대체 O)이 오답(대체 X)보다 점수가 높은 비율.
     MRR: 정답 후보가 같은 type 전체 후보 중 몇 등인지의 역수 평균(다른 정답은 순위 계산에서 제외)."""
-    final = lambda a, b: 0.0 if frozenset((a, b)) in blocked else score(products[a], products[b], attrs, w)
+    final = lambda a, b: 0.0 if (a, b) in blocked else score(products[a], products[b], attrs, w)
     s = {pair: final(*pair) for pair in gold}
     pos = [v for k, v in s.items() if gold[k] == 1]
     neg = [v for k, v in s.items() if gold[k] == 0]
@@ -236,8 +241,8 @@ def cmd_review(args):
             allowed = [(sc, q) for sc, q in ranked(products, attrs, w, pid)
                        if not substitute_violations(products[pid], products[q], attrs, policy)]  # 정책 차단 쌍은 검수할 필요 없음
             for sc, q in allowed[:args.k]:
-                pair = frozenset((pid, q))
-                if label_of(gold, pid, q) is None and pair not in seen:
+                pair = (pid, q) if direction_steps(products[pid], products[q], attrs, policy) else frozenset((pid, q))
+                if label_of(gold, pid, q, isinstance(pair, tuple)) is None and pair not in seen:
                     seen.add(pair)
                     rows.append((pid, products[pid]["name"], q, products[q]["name"], f"{sc:.3f}", "", ""))
         write_csv("review/queue.csv", header, rows)
@@ -271,7 +276,16 @@ def matches(p, cond):
 # ── 온톨로지: TPO 추론 · 정책 ─────────────────────────────────────
 
 def load_ontology():
-    return read_yaml("ontology/policy.yaml"), read_yaml("ontology/tpo.yaml")
+    policy = read_yaml("ontology/policy.yaml")
+    for r in admin_rows():
+        if r["kind"] == "policy" and r["answer"].strip().upper() in NEG:  # 관리자가 X → 그 방향 허용 단계 0
+            _, aid, way = r["key"].split(".")
+            policy["substitute"]["direction"][aid][way] = 0
+    return policy, read_yaml("ontology/tpo.yaml")
+
+
+def admin_rows():
+    return read_csv("review/admin_queue.csv") if (ROOT / "review/admin_queue.csv").exists() else []
 
 
 def infer_tpo(products, tpo):
@@ -328,6 +342,10 @@ def substitute_violations(p, q, attrs, policy):
         a, b = p["attrs"].get(aid), q["attrs"].get(aid)
         if a is not None and b is not None and not as_set(a) & as_set(b):
             out.append(f"상품간: {attrs[aid]['name']} 겹침 없음")
+    for aid, step in direction_steps(p, q, attrs, policy).items():
+        r, way = policy["substitute"]["direction"][aid], "up" if step > 0 else "down"
+        if abs(step) > r[way] or (step > 0 and p["attrs"][aid] in r.get("hard_from", [])):  # 제로를 고른 손님에게 당 올림 금지
+            out.append(f"방향: {attrs[aid]['name']} {p['attrs'][aid]}→{q['attrs'][aid]}")
     for aid, gap in policy["substitute"]["max_gap"].items():
         a, b = p["attrs"].get(aid), q["attrs"].get(aid)
         if a is not None and b is not None:
@@ -335,6 +353,23 @@ def substitute_violations(p, q, attrs, policy):
             if abs(order.index(a) - order.index(b)) > gap:
                 out.append(f"규격: {attrs[aid]['name']} {a}→{b}")
     return out
+
+
+def direction_steps(p, q, attrs, policy):
+    """p 찾는 손님에게 q 를 권할 때 방향 속성별 이동 단계. {aid: +n 커짐 / -n 작아짐}"""
+    out = {}
+    for aid in policy["substitute"].get("direction", {}):
+        a, b = p["attrs"].get(aid), q["attrs"].get(aid)
+        if a is not None and b is not None and a != b:
+            order = list(attrs[aid]["values"])
+            out[aid] = order.index(b) - order.index(a)
+    return out
+
+
+def direction_penalty(p, q, attrs, policy):
+    rules = policy["substitute"].get("direction", {})
+    return sum(rules[aid].get("penalty", {}).get("up" if st > 0 else "down", 0)
+               for aid, st in direction_steps(p, q, attrs, policy).items())
 
 
 def restricted_violations(p, q, policy):
@@ -367,8 +402,8 @@ def load_context():
 
 
 def policy_blocked(products, attrs, policy):
-    """같은 type 쌍 중 대체재 하드 정책에 걸리는 쌍."""
-    return {frozenset((p["id"], q["id"])) for p, q in itertools.combinations(products.values(), 2)
+    """같은 type 방향 쌍 (찾는 상품, 권할 상품) 중 대체재 하드 정책에 걸리는 쌍."""
+    return {(p["id"], q["id"]) for p, q in itertools.permutations(products.values(), 2)
             if p["type"] == q["type"] and substitute_violations(p, q, attrs, policy)}
 
 
@@ -479,7 +514,7 @@ def cmd_impact(args):
         ids = [pid for pid, p in products.items() if p["type"] == typ]
         def top5(A):  # 정책 통과 후 상위 5 대체 후보
             return {pid: {q for _, q in [x for x in ranked(products, A, w, pid)
-                                         if frozenset((pid, x[1])) not in blocked][:5]} for pid in ids}
+                                         if (pid, x[1]) not in blocked][:5]} for pid in ids}
 
         base = sum(evaluate(products, attrs, w, g, blocked)) / 2
         base_top = top5(attrs)
@@ -532,39 +567,196 @@ def cmd_impact(args):
     print("→ out/attribute_impact.csv")
 
 
+# ── 상품 벡터 (속성 공간의 위치) ─────────────────────────────────────
+
+def embed(products, attrs, w):
+    """상품을 속성 공간의 단위 벡터로. score 와 같은 속성·가중치를 쓰고, 순서 속성은 온도계 인코딩(가까운 단계일수록 많이 겹침).
+    벡터가 가까운 상품 = 대체 후보, 벡터 지도 = 상품 위치."""
+    feats = {}
+    for pid, p in products.items():
+        tw, v = w.get(p["type"], DEFAULT_W), {}
+        for aid, a in attrs.items():
+            if (a["weight"] == 0 or a["depth"] > tw["max_depth"] or p["type"] not in a["applies_to"]
+                    or aid not in p["attrs"]):
+                continue
+            x = p["attrs"][aid]
+            if a["type"] == "tree":
+                keys = [".".join(x.split(".")[:i + 1]) for i in range(x.count(".") + 1)]
+            elif a["type"] == "multi":
+                keys = sorted(x)
+            elif a["type"] == "ordinal":
+                order = list(a["values"])
+                keys = order[:order.index(x) + 1]
+            else:
+                keys = [x]
+            for key in keys:
+                v[f"{aid}={key}"] = (a["weight"] * tw["depth_mult"][a["depth"]] / len(keys)) ** 0.5
+        feats[pid] = v
+    index = {f: i for i, f in enumerate(sorted({f for v in feats.values() for f in v}))}
+    out = {}
+    for pid, v in feats.items():
+        x = np.zeros(len(index))
+        for f, val in v.items():
+            x[index[f]] = val
+        n = np.linalg.norm(x)
+        out[pid] = x / n if n else x
+    return out
+
+
+def labeled_examples(products, attrs, policy, gold):
+    """검수된 방향 쌍 목록. 방향 속성이 같은 쌍은 반대 방향도 같은 라벨로 쓴다."""
+    ex = []
+    for (c, d), lab in gold.items():
+        ex.append((c, d, lab))
+        if not direction_steps(products[c], products[d], attrs, policy):
+            ex.append((d, c, lab))
+    return ex
+
+
+def propagate(a, b, M, products, attrs, policy, examples, cutoff):
+    """(a→b) 와 비슷한 검수 쌍 (c→d) 의 라벨 가중 평균. 비슷함 = cos(a,c) × cos(b,d), 방향 속성의 이동도 같아야 함."""
+    sig = {k: v > 0 for k, v in direction_steps(products[a], products[b], attrs, policy).items()}
+    near = []
+    for c, d, lab in examples:
+        if products[c]["type"] != products[a]["type"] or {c, d} == {a, b}:
+            continue
+        sim = float(M[a] @ M[c]) * float(M[b] @ M[d])
+        if sim >= cutoff and {k: v > 0 for k, v in direction_steps(products[c], products[d], attrs, policy).items()} == sig:
+            near.append((sim, c, d, lab))
+    near.sort(reverse=True)
+    near = near[:5]
+    support = sum(s for s, *_ in near)
+    p_hat = sum(s * lab for s, _, _, lab in near) / support if support else None
+    return p_hat, support, near
+
+
+ADMIN_HEADER = ["kind", "key", "question", "suggestion", "evidence", "affects", "answer", "note"]
+
+
+def cmd_triage(args):
+    """구축 단계 자동 판정. 손님에게는 묻지 않고, 근거가 부족한 것만 관리자 질문으로 모은다."""
+    attrs, cats, products, _, policy, _ = load_context()
+    w, gold, cfg = load_weights(), load_gold(), policy["hitl"]
+    M = embed(products, attrs, w)
+    examples = labeled_examples(products, attrs, policy, gold)
+    name = lambda i: products[i]["name"]
+    old = {r["key"]: r for r in admin_rows()}
+    asked = {(aid, way) for aid, r in policy["substitute"]["direction"].items() for way in r.get("ask", {})}
+    auto, asks, seen, by_policy = [], [], set(), 0
+    for pid in products:
+        near = sorted(((float(M[pid] @ M[q]), q) for q in products if q != pid and products[q]["type"] == products[pid]["type"]),
+                      reverse=True)[:cfg["candidates_k"]]
+        for _, q in near:
+            for a, b in ((pid, q), (q, pid)):
+                if (a, b) in seen:
+                    continue
+                seen.add((a, b))
+                pa, pb = products[a], products[b]
+                directional = bool(direction_steps(pa, pb, attrs, policy))
+                if label_of(gold, a, b, directional) is not None or substitute_violations(pa, pb, attrs, policy):
+                    continue
+                sc = score(pa, pb, attrs, w) - direction_penalty(pa, pb, attrs, policy)
+                if sc < cfg["min_score"]:
+                    continue
+                steps = direction_steps(pa, pb, attrs, policy)
+                if any((aid, "up" if st > 0 else "down") in asked for aid, st in steps.items()):
+                    by_policy += 1  # 방향 정책 문항 하나로 일괄 결정되는 쌍 — 따로 묻지 않음
+                    continue
+                p_hat, support, ev = propagate(a, b, M, products, attrs, policy, examples, cfg["similar_cutoff"])
+                why = " / ".join(f"{name(c)}→{name(d)} {'O' if lab else 'X'}({s:.2f})" for s, c, d, lab in ev)
+                if p_hat is not None and support >= cfg["min_support"] and p_hat >= cfg["approve"]:
+                    auto.append((a, b, 1, round(p_hat, 3), round(support, 2), why))
+                elif p_hat is not None and support >= cfg["min_support"] and p_hat <= cfg["reject"]:
+                    auto.append((a, b, 0, round(p_hat, 3), round(support, 2), why))
+                else:
+                    unsure = 1 - abs((p_hat if p_hat is not None else 0.5) - 0.5) * 2  # 0.5 에 가까울수록 불확실
+                    asks.append((unsure * sc, a, b, sc, p_hat, why))
+    write_csv("review/auto_labels.csv", ["anchor", "candidate", "label", "p_hat", "support", "evidence"],
+              [(a, b, lab, ph, sp, ev) for a, b, lab, ph, sp, ev in auto])
+    rows = []
+    # 정책 문항: 방향 하나에 질문 하나. 답 하나가 그 방향의 모든 상품쌍에 적용된다.
+    base = read_yaml("ontology/policy.yaml")["substitute"]["direction"]
+    for aid, r in base.items():
+        for way, question in r.get("ask", {}).items():
+            hits = [(a["id"], b["id"]) for a, b in itertools.permutations(products.values(), 2)
+                    if a["type"] == b["type"] and (st := direction_steps(a, b, attrs, policy).get(aid))
+                    and (st > 0) == (way == "up") and abs(st) <= r[way]
+                    and not [v for v in substitute_violations(a, b, attrs, policy) if not v.startswith("방향")]]
+            hits.sort(key=lambda x: -score(products[x[0]], products[x[1]], attrs, w))
+            key = f"direction.{aid}.{way}"
+            o = old.get(key, {})
+            rows.append(("policy", key, question, f"기본값: 허용 (강도 −{r.get('penalty', {}).get(way, 0)})",
+                         " / ".join(f"{name(a)}→{name(b)}" for a, b in hits[:3]), len(hits), o.get("answer", ""), o.get("note", "")))
+    asks.sort(reverse=True)
+    for _, a, b, sc, p_hat, why in asks[:cfg["max_questions"]]:
+        key = f"{a}>{b}"
+        o = old.get(key, {})
+        sug = "?" if p_hat is None else ("O" if p_hat >= 0.5 else "X") + f" (비슷한 검수 {p_hat:.0%} O)"
+        rows.append(("pair", key, f"{name(a)} → {name(b)} 대체 추천", sug,
+                     why or "비슷한 검수 쌍 없음", f"유사도 {sc:.2f}", o.get("answer", ""), o.get("note", "")))
+    write_csv("review/admin_queue.csv", ADMIN_HEADER, rows)
+    pol = sum(1 for r in rows if r[0] == "policy")
+    print(f"자동 판정 {len(auto)}쌍 (승인 {sum(1 for x in auto if x[2])} · 거절 {sum(1 for x in auto if not x[2])}) → review/auto_labels.csv")
+    print(f"관리자 질문 {len(rows)}개 (정책 {pol} · 상품쌍 {len(rows) - pol}, 불확실 후보 {len(asks)}개 중 상위) → review/admin_queue.csv")
+    print(f"방향 정책 문항으로 일괄 결정되는 후보 {by_policy}쌍")
+
+
+def cmd_admin(args):
+    """관리자 답 반영. 상품쌍 답 → gold.csv(source=admin). 정책 문항은 파일에 남아 load_ontology 가 읽는다."""
+    rows = admin_rows()
+    done = [r for r in rows if r["kind"] == "pair" and r["answer"].strip().upper() in POS | NEG]
+    with open(ROOT / "review/gold.csv", "a", encoding="utf-8", newline="") as f:
+        csv.writer(f).writerows((*r["key"].split(">"), int(r["answer"].strip().upper() in POS), "admin", r["note"]) for r in done)
+    write_csv("review/admin_queue.csv", ADMIN_HEADER, [[r[h] for h in ADMIN_HEADER] for r in rows if r not in done])
+    pol = [r for r in rows if r["kind"] == "policy" and r["answer"].strip()]
+    print(f"상품쌍 답 {len(done)}개 → gold.csv · 정책 답 {len(pol)}개 적용. 다음: python cvs.py sweep && python cvs.py triage")
+
+
 # ── 간선 ──────────────────────────────────────────────────────────
 
-def edge_strength(model, label):
-    """간선 강도. 검수 O = 0.5 바닥 보장, 검수 X = 간선 삭제, 미검수 = 모델 점수 20% 할인."""
+def edge_strength(model, label, auto=None, policy=None):
+    """간선 강도. 검수 O = 0.5 바닥 보장, 검수 X = 간선 삭제, 자동 승인 = 사람 O 보다 낮게, 미검수 = 모델 점수 20% 할인."""
     if label == 1:
         return round(0.5 + 0.5 * model, 3), "approved"
-    if label == 0:
+    if label == 0 or auto == 0:
         return None, "rejected"
+    if auto == 1:
+        a = policy["hitl"]["auto_strength"]
+        return round(a["base"] + a["slope"] * model, 3), "auto"
     return round(0.8 * model, 3), "unreviewed"
+
+
+def load_auto():
+    path = ROOT / "review/auto_labels.csv"
+    return {(r["anchor"], r["candidate"]): int(r["label"]) for r in read_csv("review/auto_labels.csv")} if path.exists() else {}
 
 
 def build_edges(products, attrs, policy, w, gold, k, min_score):
     """반환: 대체 간선, 보완 간선, 정책 차단 목록(튀는 추천), 정책 충돌(검수 O인데 정책 위반)."""
     subs, blocked, conflicts = {}, [], []
-    anchors = effective_anchors(products, attrs, policy)
-    pairs = {tuple(sorted(pair)) for pair, lab in gold.items() if lab == 1}
+    anchors, auto = effective_anchors(products, attrs, policy), load_auto()
+    # 방향 있는 쌍 (a 찾는 손님에게 b). 후보는 양방향으로 넣고 방향마다 따로 정책을 건다.
+    pairs = {pair for pair, lab in gold.items() if lab == 1} | {pair for pair, lab in auto.items() if lab == 1}
     for pid, p in products.items():
-        pairs |= {tuple(sorted((pid, q))) for sc, q in ranked(products, attrs, w, pid)[:k] if sc >= min_score}
+        pairs |= {(pid, q) for sc, q in ranked(products, attrs, w, pid)[:k] if sc >= min_score}
         an = anchors[pid]
         if an in ("line", "menu") and p["attrs"].get(an):  # 앵커가 같은 상품은 상위 k 밖이어도 후보
-            pairs |= {tuple(sorted((pid, q["id"]))) for q in products.values()
+            pairs |= {(pid, q["id"]) for q in products.values()
                       if q["id"] != pid and q["type"] == p["type"] and q["attrs"].get(an) == p["attrs"][an]}
+    pairs |= {(b, a) for a, b in pairs}
     for a, b in sorted(pairs):
-        hit = anchor_hit(products[a], products[b], anchors)
-        model = score(products[a], products[b], attrs, w)
+        pa, pb = products[a], products[b]
+        hit = anchor_hit(pa, pb, anchors)
+        model = score(pa, pb, attrs, w)
         if hit:
             model = min(1.0, model + policy["anchor"]["boost"])
-        label = label_of(gold, a, b)
-        why = substitute_violations(products[a], products[b], attrs, policy)
+        model = max(0.0, model - direction_penalty(pa, pb, attrs, policy))
+        label = label_of(gold, a, b, bool(direction_steps(pa, pb, attrs, policy)))
+        why = substitute_violations(pa, pb, attrs, policy)
         if why:
             (conflicts if label == 1 else blocked).append(("SUBSTITUTE", a, b, round(model, 3), " · ".join(why)))
             continue
-        strength, review = edge_strength(model, label)
+        strength, review = edge_strength(model, label, auto.get((a, b)), policy)
         if strength is not None:
             subs[(a, b)] = {"strength": strength, "model_score": round(model, 3), "review": review, "anchor": hit}
     comps, cand = {}, {}
@@ -730,6 +922,100 @@ def to_audit(products, tpo, subs, comps, blocked, conflicts, combos, issues):
     return "\n".join(L) + "\n"
 
 
+# ── 품절 대체 추천 ────────────────────────────────────────────────
+
+def explain(p, q, attrs, cats, policy):
+    """점원이 말하듯 '왜 이걸 권하는지'를 속성 차이로 만든다. 같은 점 하나 + 다른 점 최대 두 개."""
+    pa, qa, same = p["attrs"], q["attrs"], None
+    for aid, word in (("line", "라인"), ("menu", "메뉴")):
+        if pa.get(aid) and pa.get(aid) == qa.get(aid):
+            same = f"같은 {pa[aid]} {word}"
+            break
+    if not same:
+        for level in (3, 2):
+            c = cat_prefix(p, level)
+            if c == cat_prefix(q, level) and c in cats:
+                same = f"같은 {cats[c]['name']}"
+                break
+    diffs = []
+    for aid, st in direction_steps(p, q, attrs, policy).items():
+        word = {"sugar": ("당", "더 많음", "더 적음"), "spicy": ("맵기", "한 단계 더 매움", "한 단계 덜 매움"),
+                "caffeine": ("카페인", "더 많음", "더 적음")}[aid]
+        diffs.append(f"{word[0]} 없음" if aid == "sugar" and qa[aid] == "없음" else f"{word[0]} {word[1] if st > 0 else word[2]}")
+    for aid, up, down in (("price_band", "조금 더 비쌈", "조금 더 저렴"), ("size", "양이 더 많음", "양이 더 적음")):
+        if pa.get(aid) and qa.get(aid) and pa[aid] != qa[aid]:
+            order = list(attrs[aid]["values"])
+            diffs.append(up if order.index(qa[aid]) > order.index(pa[aid]) else down)
+    added = sorted(as_set(qa.get("flavor")) - as_set(pa.get("flavor")) - set(policy["oos"]["quiet_flavors"]))
+    if added:
+        diffs.append("+" + "·".join(added))
+    return " · ".join([s for s in [same] if s] + diffs[:2]) or "비슷한 상품"
+
+
+def oos_recommend(pid, products, attrs, cats, policy, subs, out_of_stock=(), context=None):
+    """pid 품절일 때 대신 권할 상품. 방향 있는 대체 간선(정책·검수·관리자 판단 반영)을 강도순으로,
+    다른 품절 상품과 지금 상황(TPO)에 안 맞는 상품은 빼고, 기준 미만이면 억지로 권하지 않는다."""
+    cfg, p = policy["oos"], products[pid]
+
+    def tier(b, e):
+        # 점원 순서: 같은 라인(더 세지는 쪽 아님) → 같은 세부 카테고리 → 나머지. 같은 단계 안에서는 강도순
+        up = any(st > 0 for st in direction_steps(p, products[b], attrs, policy).values())
+        if e["anchor"] == "line" and not up:
+            return 0
+        return 1 if cat_prefix(p, 3) == cat_prefix(products[b], 3) and not up else 2
+
+    cands = sorted(((tier(b, e), -e["strength"], b, e) for (a, b), e in subs.items()
+                    if a == pid and b not in out_of_stock and e["strength"] >= cfg["min_strength"]))
+    out = []
+    for _, neg, b, e in cands:
+        s = -neg
+        # 지금 상황(TPO)에 안 맞는 대안은 뺀다. 단 손님이 고른 상품도 그 상황을 피하는 상품이면 손님 선택이 우선
+        if context and any(v in products[b]["tpo_excl"].get(dim, ()) and v not in p["tpo_excl"].get(dim, ())
+                           for dim, v in context.items()):
+            continue
+        out.append((b, s, e["review"], explain(products[pid], products[b], attrs, cats, policy)))
+        if len(out) == cfg["top"]:
+            break
+    return out
+
+
+def find_product(products, key):
+    if key in products:
+        return key
+    hits = [i for i, p in products.items() if key in p["name"]]
+    exact = [i for i in hits if products[i]["name"] == key]
+    if len(exact) == 1:
+        return exact[0]
+    if len(hits) != 1:
+        sys.exit(f"상품 '{key}' — 후보 {len(hits)}개: {', '.join(products[i]['name'] for i in hits[:10])}")
+    return hits[0]
+
+
+def cmd_oos(args):
+    attrs, cats, products, _, policy, _ = load_context()
+    subs, *_ = build_edges(products, attrs, policy, load_weights(), load_gold(), 5, 0.55)
+    context = dict(kv.split("=") for kv in args.context) if args.context else None
+    if args.all:
+        rows = []
+        for pid, p in products.items():
+            recs = oos_recommend(pid, products, attrs, cats, policy, subs)
+            rows += [(pid, p["name"], k + 1, b, products[b]["name"], s, rv, why) for k, (b, s, rv, why) in enumerate(recs)] \
+                or [(pid, p["name"], "", "", "", "", "", "권할 대체 없음")]
+        write_csv("out/oos_recommendations.csv", ["id", "name", "rank", "alt_id", "alt_name", "strength", "review", "reason"], rows)
+        none = sum(1 for r in rows if r[2] == "")
+        print(f"상품 {len(products)}개 품절 시 대체 추천 → out/oos_recommendations.csv (권할 대체 없음 {none}개)")
+        return
+    pid = find_product(products, args.product)
+    gone = {find_product(products, k) for k in args.also_out} if args.also_out else set()
+    recs = oos_recommend(pid, products, attrs, cats, policy, subs, gone, context)
+    print(f"{products[pid]['name']} 품절" + (f" (함께 품절: {', '.join(products[g]['name'] for g in gone)})" if gone else "")
+          + (f" · 상황 {context}" if context else ""))
+    for k, (b, s, rv, why) in enumerate(recs, 1):
+        print(f"  {k}. {products[b]['name']}  — {why}  [{s:.2f}{'' if rv == 'approved' else ', ' + rv}]")
+    if not recs:
+        print("  권할 대체 없음 (기준 미만은 억지로 권하지 않음)")
+
+
 def cmd_graph(args):
     attrs, cats, products, issues, policy, tpo = load_context()
     w = load_weights()
@@ -792,6 +1078,14 @@ def main():
     rp.set_defaults(fn=cmd_review)
     sub.add_parser("anchor").set_defaults(fn=cmd_anchor)
     sub.add_parser("impact").set_defaults(fn=cmd_impact)
+    sub.add_parser("triage").set_defaults(fn=cmd_triage)
+    sub.add_parser("admin").set_defaults(fn=cmd_admin)
+    op = sub.add_parser("oos")
+    op.add_argument("product", nargs="?", help="품절 상품 id 또는 이름 일부")
+    op.add_argument("--also-out", nargs="*", help="함께 품절인 상품 (대안에서 뺌)")
+    op.add_argument("--context", nargs="*", help="지금 상황 (예: weather=더움 time=심야)")
+    op.add_argument("--all", action="store_true", help="전 상품 품절 시 추천을 out/oos_recommendations.csv 로")
+    op.set_defaults(fn=cmd_oos)
     gp = sub.add_parser("graph")
     gp.add_argument("--k", type=int, default=5, help="상품당 대체 간선 최대 수")
     gp.add_argument("--min-score", type=float, default=0.55, help="미검수 대체 간선의 최소 모델 점수")
