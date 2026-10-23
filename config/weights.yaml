@@ -7,10 +7,10 @@ snack:
     3: 0.5
     4: 1.0
   metrics:
-    auc: 0.8485
-    mrr: 0.8826
-    objective: 0.8655
-    gold_pairs: 139
+    auc: 0.8395
+    mrr: 0.8679
+    objective: 0.8537
+    gold_pairs: 146
 ramen:
   max_depth: 2
   depth_mult:
@@ -19,12 +19,24 @@ ramen:
     3: 1.0
     4: 1.0
   metrics:
-    auc: 0.9545
+    auc: 0.9528
     mrr: 0.9333
-    objective: 0.9439
-    gold_pairs: 58
+    objective: 0.9431
+    gold_pairs: 61
 beverage:
   max_depth: 2
+  depth_mult:
+    1: 1.0
+    2: 1.0
+    3: 1.0
+    4: 1.0
+  metrics:
+    auc: 0.9842
+    mrr: 1.0
+    objective: 0.9921
+    gold_pairs: 30
+household:
+  max_depth: 1
   depth_mult:
     1: 1.0
     2: 1.0
@@ -34,16 +46,4 @@ beverage:
     auc: 1.0
     mrr: 1.0
     objective: 1.0
-    gold_pairs: 25
-household:
-  max_depth: 1
-  depth_mult:
-    1: 1.0
-    2: 1.0
-    3: 1.0
-    4: 1.0
-  metrics:
-    auc: 0.8333
-    mrr: 0.7059
-    objective: 0.7696
-    gold_pairs: 9
+    gold_pairs: 12
