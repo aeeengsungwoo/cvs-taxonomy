@@ -192,4 +192,6 @@ oos:
 
 # 페르소나 설문(survey/) 판정 기준. 응답자 = 그 상품을 살 일이 있는 사람(skip 제외)
 #   min_n 명 이상 답한 보기만 판정, accept 이상이 '대신 산다' → O, reject 이하 → X, 사이는 갈림
-survey: {min_n: 5, accept: 0.5, reject: 0.2}
+# split: 설문이 갈린 쌍(reject < 수용 < accept)의 처리. ai = 옛 AI 라벨 유지, weak = 수용률을 약한 강도로, none = AI 라벨을 버리고 벡터 점수(미검수 할인)로
+#   홀드아웃(짝수 채점) 헛추천 ai 0.155 · weak 0.175 · none 0.144, 선택률은 셋 다 0.94 → none
+survey: {min_n: 5, accept: 0.5, reject: 0.2, split: none}

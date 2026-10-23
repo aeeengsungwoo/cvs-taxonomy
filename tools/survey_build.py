@@ -25,20 +25,24 @@ def shuffled(qid, ids):
     return sorted(ids, key=lambda i: hashlib.md5(f"{qid}:{i}".encode()).hexdigest())
 
 
+def question(pid, ctx, subs, raw):
+    """한 상품의 문항: 지금 추천 + 같은 라인 + 점수 근처, 최대 7개."""
+    attrs, cats, products, _, policy, _ = ctx
+    p = products[pid]
+    picks = [b for b, *_ in cvs.oos_recommend(pid, products, attrs, cats, policy, subs)]
+    near = [q for _, q in cvs.ranked(products, attrs, cvs.load_weights(), pid)]
+    line = [q for q in near if p["attrs"].get("line") and products[q]["attrs"].get("line") == p["attrs"]["line"]]
+    opts = list(dict.fromkeys(picks + line + near))[:MAX_OPTIONS]
+    return {"q": pid, "name": p["name"], "desc": describe(raw[pid]),
+            "options": [{"id": o, "name": products[o]["name"], "desc": describe(raw[o])} for o in shuffled(pid, opts)]}
+
+
 def main():
-    attrs, cats, products, _, policy, _ = cvs.load_context()
-    w, gold = cvs.load_weights(), cvs.load_gold()
-    subs, *_ = cvs.build_edges(products, attrs, policy, w, gold, 5, 0.55)
+    ctx = cvs.load_context()
+    attrs, cats, products, _, policy, _ = ctx
+    subs, *_ = cvs.build_edges(products, attrs, policy, cvs.load_weights(), cvs.load_gold(), 5, 0.55)
     raw = {r["id"]: r for r in cvs.read_csv("data/products.csv")}
-    questions = []
-    for pid, p in products.items():
-        picks = [b for b, *_ in cvs.oos_recommend(pid, products, attrs, cats, policy, subs)]
-        near = [q for _, q in cvs.ranked(products, attrs, w, pid)]
-        line = [q for q in near if p["attrs"].get("line") and products[q]["attrs"].get("line") == p["attrs"]["line"]]
-        opts = list(dict.fromkeys(picks + line + near))[:MAX_OPTIONS]
-        questions.append({"q": pid, "name": p["name"], "desc": describe(raw[pid]),
-                          "options": [{"id": o, "name": products[o]["name"], "desc": describe(raw[o])}
-                                      for o in shuffled(pid, opts)]})
+    questions = [question(pid, ctx, subs, raw) for pid in products]
     out = cvs.ROOT / "survey"
     out.mkdir(exist_ok=True)
     (out / "questions.json").write_text(json.dumps(questions, ensure_ascii=False, indent=1), encoding="utf-8")

@@ -769,6 +769,7 @@ def build_edges(products, attrs, policy, w, gold, k, min_score, survey=None):
     survey: 설문 판정 {(a, b): (라벨, 수용률)}. 없으면 전 응답자로 만든다. 사람 검수(review) 다음으로 우선한다."""
     subs, blocked, conflicts = {}, [], []
     survey = survey_labels(policy) if survey is None else survey
+    split = policy["survey"].get("split", "ai")
     human = {(r["anchor"], r["candidate"]) for r in read_csv("review/gold.csv") if r["source"] == "review"}
     anchors, auto = effective_anchors(products, attrs, policy), load_auto()
     ok_ways = {tuple(r["key"].split(".")[1:]) for r in admin_rows()
@@ -792,8 +793,9 @@ def build_edges(products, attrs, policy, w, gold, k, min_score, survey=None):
             model = min(1.0, model + policy["anchor"]["boost"])
         model = max(0.0, model - direction_penalty(pa, pb, attrs, policy))
         label = label_of(gold, a, b, bool(direction_steps(pa, pb, attrs, policy)))
-        if (a, b) in survey and (a, b) not in human:
-            label = survey[(a, b)][0]  # 설문이 옳다고 가정 — AI 검수·관리자(AI) 라벨보다 우선
+        sv = survey.get((a, b)) if (a, b) not in human else None
+        if sv and (sv[0] is not None or split != "ai"):
+            label = sv[0]  # 설문이 옳다고 가정 — AI 검수·관리자(AI) 라벨보다 우선. 갈림(None)은 split 설정을 따른다
         why = substitute_violations(pa, pb, attrs, policy)
         if why and label == 1 and decided.get((a, b)) == "유지":
             label = 0  # 충돌 결정: 정책이 맞다 (review/conflicts.csv)
@@ -802,8 +804,8 @@ def build_edges(products, attrs, policy, w, gold, k, min_score, survey=None):
             (conflicts if label == 1 else blocked).append(("SUBSTITUTE", a, b, round(model, 3), " · ".join(why)))
             continue
         steps = direction_steps(pa, pb, attrs, policy)
-        if label == 1 and (a, b) in survey and (a, b) not in human:
-            strength, review = round(0.5 + 0.5 * survey[(a, b)][1], 3), "survey"  # 강도 = 설문 수용률 → 점원 순서가 설문을 따름
+        if sv and (label == 1 or (sv[0] is None and split == "weak")):
+            strength, review = round(0.5 + 0.5 * sv[1], 3), "survey"  # 강도 = 설문 수용률 → 점원 순서가 설문을 따름
         elif label is None and steps and all((aid, "up" if st > 0 else "down") in ok_ways for aid, st in steps.items()):
             # 이 방향은 관리자 정책 문항으로 승인됨 (코카콜라 → 코카콜라 제로)
             strength, review = round(0.5 + 0.5 * model, 3), "policy"
@@ -1075,37 +1077,51 @@ def cmd_oos(args):
 
 # ── 페르소나 설문 ─────────────────────────────────────────────────
 
-def load_survey(only=None):
-    """survey/answers/*.json → 상품쌍별 {accept 대신 산다, best 가장 먼저 집음} 인원, 문항별 {n 응답자, none 안 산다}.
-    skip(애초에 그 상품을 살 일이 없음)한 응답자는 그 문항의 분모에서 뺀다."""
-    pairs, qs = {}, {}
+def survey_answers(only=None):
+    """응답을 (페르소나, 문항) 단위로 합친다. 선별 설문은 라운드마다 보기가 달라서, 응답마다 그때 본 보기(shown)를 함께 둔다.
+    합칠 때: 대신 산다·본 보기는 합집합, 가장 먼저 집음은 첫 라운드 것, skip 은 모든 라운드가 skip 일 때만."""
     for f in sorted((ROOT / "survey/answers").glob("P*.json")):
         if only and f.stem not in only:
             continue
+        merged = {}
         for a in json.loads(f.read_text(encoding="utf-8"))["answers"]:
+            m = merged.setdefault(a["q"], {"who": f.stem, "q": a["q"], "skip": True, "accept": set(), "shown": set(), "best": None})
             if a.get("skip"):
                 continue
-            q = qs.setdefault(a["q"], {"n": 0, "none": 0})
-            q["n"] += 1
-            q["none"] += not a["accept"]
-            for b in a["accept"]:
-                pairs.setdefault((a["q"], b), {"accept": 0, "best": 0})["accept"] += 1
-            if a.get("best"):
-                pairs.setdefault((a["q"], a["best"]), {"accept": 0, "best": 0})["best"] += 1
+            m["skip"] = False
+            m["accept"] |= set(a["accept"])
+            m["shown"] |= set(a["shown"])
+            m["best"] = m["best"] or a.get("best")
+        yield from merged.values()
+
+
+def load_survey(only=None):
+    """survey/answers/*.json → 상품쌍별 {n 그 보기를 본 응답자, accept 대신 산다, best 가장 먼저 집음}, 문항별 {n 응답자, none 안 산다}.
+    skip(애초에 그 상품을 살 일이 없음)한 응답자는 분모에서 뺀다."""
+    pairs, qs = {}, {}
+    for a in survey_answers(only):
+        if a["skip"]:
+            continue
+        q = qs.setdefault(a["q"], {"n": 0, "none": 0})
+        q["n"] += 1
+        q["none"] += not a["accept"]
+        for b in a["shown"]:
+            s = pairs.setdefault((a["q"], b), {"n": 0, "accept": 0, "best": 0})
+            s["n"] += 1
+            s["accept"] += b in a["accept"]
+            s["best"] += b == a["best"]
     return pairs, qs
 
 
 def survey_labels(policy, only=None):
-    """설문 판정 {(a, b): (1 또는 0, 수용률)}. min_n 명 이상 답한 보기 중 accept 이상 O, reject 이하 X, 갈린 것은 뺀다."""
+    """설문 판정 {(a, b): (라벨, 수용률)}. min_n 명 이상 본 보기 중 accept 이상 1, reject 이하 0, 그 사이(갈림)는 None."""
     if not (ROOT / "survey/answers").exists():
         return {}
-    cfg, (pairs, qs), out = policy["survey"], load_survey(only), {}
-    for (a, b), s in pairs.items():
-        n = qs[a]["n"]
-        if n >= cfg["min_n"]:
-            r = s["accept"] / n
-            if r >= cfg["accept"] or r <= cfg["reject"]:
-                out[(a, b)] = (int(r >= cfg["accept"]), r)
+    cfg, out = policy["survey"], {}
+    for (a, b), s in load_survey(only)[0].items():
+        if s["n"] >= cfg["min_n"]:
+            r = s["accept"] / s["n"]
+            out[(a, b)] = (1 if r >= cfg["accept"] else 0 if r <= cfg["reject"] else None, r)
     return out
 
 
@@ -1115,19 +1131,16 @@ def pick_eval(products, attrs, cats, policy, subs, only=None):
     빈손 = 살 게 있는데 아무것도 안 보여 준 비율, 헛추천 = 보여 준 상품 중 그 응답자가 안 고른 비율(많이 보여 줄수록 커짐)."""
     ours = {pid: [b for b, *_ in oos_recommend(pid, products, attrs, cats, policy, subs)] for pid in products}
     buy = pick = first = empty = shown = wasted = 0
-    for f in sorted((ROOT / "survey/answers").glob("P*.json")):
-        if only and f.stem not in only:
+    for a in survey_answers(only):
+        if a["skip"] or not a["accept"]:
             continue
-        for a in json.loads(f.read_text(encoding="utf-8"))["answers"]:
-            if a.get("skip") or not a["accept"]:
-                continue
-            o, acc = ours.get(a["q"], []), set(a["accept"])
-            buy += 1
-            pick += bool(set(o) & acc)
-            first += bool(o) and o[0] in acc
-            empty += not o
-            shown += len(o)
-            wasted += sum(b not in acc for b in o)
+        o, acc = ours.get(a["q"], []), a["accept"]
+        buy += 1
+        pick += bool(set(o) & acc)
+        first += bool(o) and o[0] in acc
+        empty += not o
+        shown += len(o)
+        wasted += sum(b not in acc for b in o)
     r = lambda x, n: round(x / n, 3) if n else 0
     return {"선택률": r(pick, buy), "1순위": r(first, buy), "빈손": r(empty, buy), "헛추천": r(wasted, shown), "응답": buy}
 
@@ -1141,7 +1154,7 @@ def survey_eval(products, attrs, cats, policy, subs, pairs, qs):
         if q["n"] < cfg["min_n"]:
             continue
         ours = [b for b, *_ in oos_recommend(pid, products, attrs, cats, policy, subs)]
-        liked = {b for (a, b), s in pairs.items() if a == pid and s["accept"] / q["n"] >= cfg["accept"]}
+        liked = {b for (a, b), s in pairs.items() if a == pid and s["n"] >= cfg["min_n"] and s["accept"] / s["n"] >= cfg["accept"]}
         bests = sorted(((s["best"], b) for (a, b), s in pairs.items() if a == pid and s["best"]), reverse=True)
         hit = len(set(ours) & liked)
         rows.append({"id": pid, "name": products[pid]["name"], "n": q["n"], "none": round(q["none"] / q["n"], 2),
@@ -1216,8 +1229,8 @@ def cmd_taxofit(args):
         if tree_depth(products[a], products[b]) < 2:
             k = tuple(sorted((cat_prefix(products[a], 2), cat_prefix(products[b], 2))))
             c = cross.setdefault(k, [0, 0, same_group(products[a], products[b], policy) or ""])
-            c[0] += lab
-            c[1] += 1
+            c[0] += lab == 1
+            c[1] += lab is not None
     rows = sorted(([x, y, o, n, round(o / n, 2), g] for (x, y), (o, n, g) in cross.items() if o), key=lambda r: (-r[2], -r[4]))
     write_csv("out/taxonomy_fit.csv", ["node_a", "node_b", "survey_O", "judged", "O_rate", "group"], rows)
     print(f"중분류를 넘는데 설문 O 인 노드 쌍 {len(rows)}개 → out/taxonomy_fit.csv (경계 재검토 후보)")
@@ -1234,7 +1247,7 @@ def cmd_survey(args):
     src = {(r["anchor"], r["candidate"]): r["source"] for r in read_csv("review/gold.csv")}
     cfg, out = policy["survey"], []
     for (a, b), s in sorted(pairs.items()):
-        n = qs[a]["n"]
+        n = s["n"]
         rate = s["accept"] / n
         verdict = "O" if n >= cfg["min_n"] and rate >= cfg["accept"] else "X" if n >= cfg["min_n"] and rate <= cfg["reject"] else ""
         out.append([a, products[a]["name"], b, products[b]["name"], n, round(rate, 3), round(s["best"] / n, 3), verdict,
@@ -1251,9 +1264,9 @@ def cmd_survey(args):
     print("기존 라벨과 일치: " + ", ".join(f"{s} {a}/{n} ({a / n:.0%})" for s, (a, n) in sorted(agree.items())))
     feats = {}
     for (a, b), s in pairs.items():
-        if qs[a]["n"] >= cfg["min_n"]:
+        if s["n"] >= cfg["min_n"]:
             for f in survey_features(products[a], products[b], attrs, policy):
-                feats.setdefault(f, []).append(s["accept"] / qs[a]["n"])
+                feats.setdefault(f, []).append(s["accept"] / s["n"])
     write_csv("out/survey_features.csv", ["feature", "pairs", "accept_mean"],
               sorted(([f, len(v), round(float(np.mean(v)), 3)] for f, v in feats.items()), key=lambda r: -r[2]))
     w = load_weights()
