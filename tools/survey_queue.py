@@ -1,8 +1,9 @@
 """선별 설문 대기열. 전 상품을 30명에게 다시 묻지 않고, 확인 안 된 것만 관련 있는 페르소나에게 묻는다(docs/limits_and_next.md 대안 A).
 묻는 것: ① 설문을 한 번도 안 받은 상품(새 상품)은 보기 전부, ② 기존 상품은 지금 1~3순위로 보여 주는데 설문 판정이 없는 보기만.
+증류 모델이 켜져 있으면(policy distill) 그중 모델이 확신하는 보기(수용 확률 ≥ accept 또는 ≤ reject)는 묻지 않는다.
 누구에게: 같은 중분류 문항에서 skip(살 일 없음)하지 않은 비율이 높은 페르소나 순으로 최대 10명, 최소 min_n 명.
 
-python tools/survey_queue.py   →  survey/queue.json (문항·보기·응답자), 전수 재설문 대비 응답 수 출력"""
+python tools/survey_queue.py [--no-model]   →  survey/queue.json (문항·보기·응답자), 전수 재설문 대비 응답 수 출력"""
 import json
 import sys
 from pathlib import Path
@@ -29,10 +30,15 @@ def relevance(pid, products, answers):
     return {}
 
 
-def main():
+def plan(use_model=True, write=True):
+    """반환 (대기열, 전수 재설문 문항 수, 페르소나 수)."""
     ctx = cvs.load_context()
     attrs, cats, products, _, policy, _ = ctx
-    subs, *_ = cvs.build_edges(products, attrs, policy, cvs.load_weights(), cvs.load_gold(), 5, 0.55)
+    w = cvs.load_weights()
+    dcfg = policy.get("distill", {})
+    pred = cvs.distill_predictions(products, attrs, policy, w) if use_model and dcfg.get("enabled") else {}
+    subs, *_ = cvs.build_edges(products, attrs, policy, w, cvs.load_gold(), 5, 0.55, pred=pred)
+    sure = lambda a, b: (a, b) in pred and (pred[(a, b)] >= dcfg["accept"] or pred[(a, b)] <= dcfg["reject"])
     raw = {r["id"]: r for r in cvs.read_csv("data/products.csv")}
     answers = list(cvs.survey_answers())
     pairs, qs = cvs.load_survey()
@@ -48,6 +54,7 @@ def main():
         if pid in qs:
             top3 = {b for b, *_ in cvs.oos_recommend(pid, products, attrs, cats, policy, subs)}
             q["options"] = [o for o in q["options"] if o["id"] in top3 and (pid, o["id"]) not in judged]
+        q["options"] = [o for o in q["options"] if not sure(pid, o["id"])]
         if not q["options"]:
             continue
         rel = relevance(pid, products, answers)
@@ -55,10 +62,16 @@ def main():
         pick = [w for w in ranked if rel.get(w, 0) >= 0.5][:MAX_PEOPLE]
         q["personas"] = pick if len(pick) >= policy["survey"]["min_n"] else ranked[:policy["survey"]["min_n"]]
         queue.append(q)
-    (cvs.ROOT / "survey/queue.json").write_text(json.dumps(queue, ensure_ascii=False, indent=1), encoding="utf-8")
+    if write:
+        (cvs.ROOT / "survey/queue.json").write_text(json.dumps(queue, ensure_ascii=False, indent=1), encoding="utf-8")
+    return queue, full, len(personas)
+
+
+def main():
+    queue, full, people = plan("--no-model" not in sys.argv)
     asked = sum(len(q["personas"]) for q in queue)
     print(f"선별 설문 {len(queue)}문항 · 보기 {sum(len(q['options']) for q in queue)}개 · 응답 {asked}건 → survey/queue.json")
-    print(f"전수 재설문이었다면 {full}문항 × {len(personas)}명 = 응답 {full * len(personas)}건")
+    print(f"전수 재설문이었다면 {full}문항 × {people}명 = 응답 {full * people}건")
     for q in queue:
         print(f"  {q['q']} {q['name']}: 보기 {len(q['options'])}개 · {len(q['personas'])}명")
 

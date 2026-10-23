@@ -12,6 +12,7 @@
   python cvs.py oos 코카콜라      품절 시 대신 권할 상품과 이유 (--also-out, --context weather=더움, --all)
   python cvs.py survey            페르소나 설문 집계 → 기존 라벨과 대조, 품절 추천 precision/recall (out/survey_*.csv)
   python cvs.py rankeval          추천 지표 P@3 · R@3 · NDCG@3 를 인기순·벡터·무작위 기준선과 비교 → out/rank_eval.csv
+  python cvs.py distill           증류 모델 검증: 설문 판정 AUC, 새 상품 가정 품절 추천 지표 → out/distill_*.csv
   python cvs.py taxofit           택소노미 적합도: 트리 거리가 설문 대체 판단과 맞는가 → out/taxonomy_fit.csv
   python cvs.py graph [--push]    out/graph.cypher, out/edges.csv, out/audit.md 생성 (--push 면 Neo4j에 바로 적재)
                                   정책 충돌 → review/conflicts.csv (decision 칸에 허용 / 유지)
@@ -766,12 +767,16 @@ def load_auto():
     return {(r["anchor"], r["candidate"]): int(r["label"]) for r in read_csv("review/auto_labels.csv")} if path.exists() else {}
 
 
-def build_edges(products, attrs, policy, w, gold, k, min_score, survey=None):
+def build_edges(products, attrs, policy, w, gold, k, min_score, survey=None, pred=None):
     """반환: 대체 간선, 보완 간선, 정책 차단 목록(튀는 추천), 정책 충돌(검수 O인데 정책 위반).
-    survey: 설문 판정 {(a, b): (라벨, 수용률)}. 없으면 전 응답자로 만든다. 사람 검수(review) 다음으로 우선한다."""
+    survey: 설문 판정 {(a, b): (라벨, 수용률)}. 없으면 전 응답자로 만든다. 사람 검수(review) 다음으로 우선한다.
+    pred: 증류 모델 예측 {(a, b): 수용률}. 없고 policy distill.enabled 면 전 응답자 설문으로 학습해 만든다. 설문이 없는 쌍에만 쓴다."""
     subs, blocked, conflicts = {}, [], []
     survey = survey_labels(policy) if survey is None else survey
     split = policy["survey"].get("split", "ai")
+    dcfg = policy.get("distill", {})
+    if pred is None:
+        pred = distill_predictions(products, attrs, policy, w) if dcfg.get("enabled") else {}
     human = {(r["anchor"], r["candidate"]) for r in read_csv("review/gold.csv") if r["source"] == "review"}
     anchors, auto = effective_anchors(products, attrs, policy), load_auto()
     ok_ways = {tuple(r["key"].split(".")[1:]) for r in admin_rows()
@@ -798,6 +803,11 @@ def build_edges(products, attrs, policy, w, gold, k, min_score, survey=None):
         sv = survey.get((a, b)) if (a, b) not in human else None
         if sv and (sv[0] is not None or split != "ai"):
             label = sv[0]  # 설문이 옳다고 가정 — AI 검수·관리자(AI) 라벨보다 우선. 갈림(None)은 split 설정을 따른다
+        pm = pred.get((a, b)) if not sv and (a, b) not in human and (label is None or dcfg.get("override_ai")) else None
+        if pm is not None and (pm >= dcfg["accept"] or pm <= dcfg["reject"]):
+            label = int(pm >= dcfg["accept"])  # 증류 모델 판정 — 설문이 없는 쌍만, 확신 구간만
+        else:
+            pm = None
         why = substitute_violations(pa, pb, attrs, policy)
         if why and label == 1 and decided.get((a, b)) == "유지":
             label = 0  # 충돌 결정: 정책이 맞다 (review/conflicts.csv)
@@ -808,6 +818,8 @@ def build_edges(products, attrs, policy, w, gold, k, min_score, survey=None):
         steps = direction_steps(pa, pb, attrs, policy)
         if sv and (label == 1 or (sv[0] is None and split == "weak")):
             strength, review = round(0.5 + 0.5 * sv[1], 3), "survey"  # 강도 = 설문 수용률 → 점원 순서가 설문을 따름
+        elif pm is not None and label == 1:
+            strength, review = round(0.5 + 0.5 * pm, 3), "model"  # 강도 = 예측 수용률
         elif label is None and steps and all((aid, "up" if st > 0 else "down") in ok_ways for aid, st in steps.items()):
             # 이 방향은 관리자 정책 문항으로 승인됨 (코카콜라 → 코카콜라 제로)
             strength, review = round(0.5 + 0.5 * model, 3), "policy"
@@ -1157,7 +1169,8 @@ def rank_eval(products, attrs, cats, policy, w, k=3):
     for a in survey_answers(odd):
         for b in a["accept"]:
             pop[b] = pop.get(b, 0) + 1
-    subs, *_ = build_edges(products, attrs, policy, w, load_gold(), 5, 0.55, survey_labels(policy, odd))
+    subs, *_ = build_edges(products, attrs, policy, w, load_gold(), 5, 0.55, survey_labels(policy, odd),
+                           distill_predictions(products, attrs, policy, w, odd))
     ours = {pid: [b for b, *_ in oos_recommend(pid, products, attrs, cats, policy, subs)] for pid in products}
     rand = lambda pid, b, seed: hashlib.md5(f"{seed}:{pid}:{b}".encode()).hexdigest()
     methods = {
@@ -1231,6 +1244,111 @@ def survey_features(p, q, attrs, policy):
             out.append(f"{attrs[aid]['name']} {'올림' if order.index(b) > order.index(a) else '내림'}")
     out += sorted({"차단 " + why.split(":")[0] for why in substitute_violations(p, q, attrs, policy)})
     return out
+
+
+# ── 수용률 예측 모델 (증류) ──────────────────────────────────────────
+# 설문(비싼 판정자) 답을 작은 모델에 옮겨, 설문 없는 상품쌍의 '대신 살 확률'을 토큰 없이 예측한다.
+
+def pair_features(p, q, attrs, policy, w):
+    """p 품절 → q 를 숫자 특징으로. 이름 → 값."""
+    pa, qa = p["attrs"], q["attrs"]
+    same = lambda k: float(bool(pa.get(k)) and pa.get(k) == qa.get(k))
+    d = tree_depth(p, q)
+    f = {"벡터 점수": score(p, q, attrs, w), "같은 라인": same("line"), "같은 메뉴": same("menu"), "같은 제조사": same("maker"),
+         "같은 대분류": float(d >= 1), "같은 중분류": float(d >= 2), "같은 세부 카테고리": float(d >= 3),
+         "같은 묶음": float(bool(same_group(p, q, policy))), "정책 차단": float(bool(substitute_violations(p, q, attrs, policy)))}
+    for aid in ("price_band", "size"):
+        order = list(attrs[aid]["values"])
+        st = order.index(qa[aid]) - order.index(pa[aid]) if pa.get(aid) in order and qa.get(aid) in order else 0
+        f[f"{attrs[aid]['name']} 올림"], f[f"{attrs[aid]['name']} 내림"] = max(st, 0), max(-st, 0)
+    steps = direction_steps(p, q, attrs, policy, raw=True)
+    for aid in policy["substitute"].get("direction", {}):
+        f[f"{attrs[aid]['name']} 올림"], f[f"{attrs[aid]['name']} 내림"] = max(steps.get(aid, 0), 0), max(-steps.get(aid, 0), 0)
+    fa, fb = as_set(pa.get("flavor") or frozenset()), as_set(qa.get("flavor") or frozenset())
+    f["맛 겹침"] = len(fa & fb) / len(fa | fb) if fa | fb else 1.0
+    for t in ("snack", "ramen", "beverage", "household"):
+        f[f"종류 {t}"] = float(p["type"] == t)
+    return f
+
+
+def fit_accept_model(rows, l2=1.0, steps=3000, lr=0.3):
+    """rows = [(특징 dict, 수용률, 응답자 수)] → 가중 로지스틱 회귀(수용률을 소프트 라벨로). 반환 {names, mu, sd, w}."""
+    names = list(rows[0][0])
+    X = np.array([[r[0][k] for k in names] for r in rows], dtype=float)
+    y = np.array([r[1] for r in rows])
+    n = np.array([r[2] for r in rows], dtype=float)
+    mu, sd = X.mean(0), X.std(0) + 1e-9
+    Z = np.hstack([(X - mu) / sd, np.ones((len(X), 1))])
+    beta, wt = np.zeros(Z.shape[1]), n / n.mean()
+    for _ in range(steps):
+        pr = 1 / (1 + np.exp(-Z @ beta))
+        grad = Z.T @ (wt * (pr - y)) / len(y) + l2 * np.r_[beta[:-1], 0] / len(y)
+        beta -= lr * grad
+    return {"names": names, "mu": mu, "sd": sd, "w": beta}
+
+
+def predict_accept(model, feats):
+    x = (np.array([feats[k] for k in model["names"]]) - model["mu"]) / model["sd"]
+    return float(1 / (1 + np.exp(-(x @ model["w"][:-1] + model["w"][-1]))))
+
+
+def distill_training_rows(products, attrs, policy, w, only=None, skip_q=()):
+    pairs, _ = load_survey(only)
+    return [(pair_features(products[a], products[b], attrs, policy, w), s["accept"] / s["n"], s["n"], (a, b))
+            for (a, b), s in sorted(pairs.items())
+            if s["n"] >= policy["survey"]["min_n"] and a in products and b in products and a not in skip_q]
+
+
+def distill_predictions(products, attrs, policy, w, survey_only=None, skip_q=()):
+    """설문으로 학습한 모델이 같은 type 상품쌍 전부의 수용률을 예측. {(a, b): 확률}"""
+    rows = distill_training_rows(products, attrs, policy, w, survey_only, skip_q)
+    if len(rows) < 30:
+        return {}
+    model = fit_accept_model([r[:3] for r in rows])
+    return {(a, b): predict_accept(model, pair_features(products[a], products[b], attrs, policy, w))
+            for a in products for b in products if a != b and products[a]["type"] == products[b]["type"]}
+
+
+def cmd_distill(args):
+    """증류 모델 검증. ① 상품 5겹: 설문 판정을 가르는 힘(AUC) — 모델 vs 벡터 점수 vs 정책 규칙.
+    ② 새 상품 가정(상품 3겹, 그 상품의 설문·AI 라벨 없음): 품절 추천 지표 — 정책+벡터만 vs + 모델."""
+    attrs, cats, products, _, policy, _ = load_context()
+    w = load_weights()
+    fold = lambda pid, k: int(hashlib.md5(pid.encode()).hexdigest(), 16) % k
+    rows = distill_training_rows(products, attrs, policy, w)
+    got = []
+    for k in range(5):
+        model = fit_accept_model([r[:3] for r in rows if fold(r[3][0], 5) != k])
+        got += [(predict_accept(model, r[0]), r[0]["벡터 점수"], 1 - r[0]["정책 차단"], r[1]) for r in rows if fold(r[3][0], 5) == k]
+    pos, neg = [g for g in got if g[3] >= policy["survey"]["accept"]], [g for g in got if g[3] <= policy["survey"]["reject"]]
+    auc = lambda i: sum((x[i] > y[i]) + 0.5 * (x[i] == y[i]) for x in pos for y in neg) / (len(pos) * len(neg))
+    print(f"설문 판정 {len(rows)}쌍 · 상품 5겹 · O/X 가르는 힘(AUC): 모델 {auc(0):.3f} · 벡터 점수 {auc(1):.3f} · 정책 규칙 {auc(2):.3f}")
+    model = fit_accept_model([r[:3] for r in rows])
+    coef = sorted(zip(model["names"], model["w"][:-1]), key=lambda x: -abs(x[1]))
+    print("영향 큰 특징: " + " · ".join(f"{n} {v:+.2f}" for n, v in coef[:8]))
+    labels, pids, out = survey_labels(policy), sorted(products), []
+    for name, use in (("정책+벡터만", False), ("+ 증류 모델", True)):
+        tot = {"buy": 0, "pick": 0, "first": 0, "empty": 0, "shown": 0, "hit": 0}
+        for k in range(3):
+            hide = {p for p in pids if fold(p, 3) == k}
+            pred = distill_predictions(products, attrs, policy, w, skip_q=hide) if use else {}
+            subs, *_ = build_edges(products, attrs, policy, w, {}, 5, 0.55, {pr: v for pr, v in labels.items() if pr[0] not in hide}, pred)
+            ours = {p: [b for b, *_ in oos_recommend(p, products, attrs, cats, policy, subs)] for p in hide}
+            for a in survey_answers():
+                if a["skip"] or a["q"] not in hide or not a["accept"]:
+                    continue
+                o = ours[a["q"]]
+                tot["buy"] += 1
+                tot["pick"] += bool(set(o) & a["accept"])
+                tot["first"] += bool(o) and o[0] in a["accept"]
+                tot["empty"] += not o
+                tot["shown"] += len(o)
+                tot["hit"] += len(set(o) & a["accept"])
+        m = {"선택률": tot["pick"] / tot["buy"], "1순위": tot["first"] / tot["buy"], "빈손": tot["empty"] / tot["buy"], "보인 것 중 맞음": tot["hit"] / tot["shown"]}
+        out.append([name, *(round(v, 3) for v in m.values())])
+        print(f"새 상품 가정 · {name}: " + " · ".join(f"{k} {v:.3f}" for k, v in m.items()))
+    write_csv("out/distill_eval.csv", ["method", "pick", "first", "empty", "precision_shown"], out)
+    write_csv("out/distill_coef.csv", ["feature", "coef"], [[n, round(float(v), 3)] for n, v in coef])
 
 
 # ── 택소노미 적합도 ───────────────────────────────────────────────
@@ -1329,8 +1447,9 @@ def cmd_survey(args):
     # 과적합 확인: 홀수 페르소나 판정으로 간선을 만들고 짝수 페르소나 답으로 채점 (정책만 vs 정책 + 설문 판정)
     odd, even = ({f"P{i:02d}" for i in range(s, 31, 2)} for s in (1, 2))
     even_pairs, even_qs = load_survey(even)
-    for name, sv in (("정책만", {}), ("정책 + 설문 판정(홀수)", survey_labels(policy, odd))):
-        subs, *_ = build_edges(products, attrs, policy, w, gold, 5, 0.55, sv)
+    for name, sv, pr in (("정책만", {}, {}),
+                         ("정책 + 설문 판정(홀수)", survey_labels(policy, odd), distill_predictions(products, attrs, policy, w, odd))):
+        subs, *_ = build_edges(products, attrs, policy, w, gold, 5, 0.55, sv, pr)
         m = survey_eval(products, attrs, cats, policy, subs, even_pairs, even_qs)[1]
         k = pick_eval(products, attrs, cats, policy, subs, even)
         print(f"  짝수 페르소나로 채점 · {name}: 3개 중 선택률 {k['선택률']} · 1순위 {k['1순위']} · 빈손 {k['빈손']}"
@@ -1380,7 +1499,7 @@ def cmd_graph(args):
     write_csv("review/conflicts.csv", CONFLICT_HEADER, [[r[h] for h in CONFLICT_HEADER] for r in old]
               + [[a, name(a), b, name(b), why, "", ""] for r, a, b, s, why in conflicts if r == "SUBSTITUTE" and (a, b) not in known])
     by = lambda key: sum(e["review"] == key for e in subs.values())
-    print(f"대체 간선 {len(subs)} (설문 {by('survey')} / 검수O {by('approved')} / 미검수 {by('unreviewed')}) · 보완 간선 {len(comps)}")
+    print(f"대체 간선 {len(subs)} (설문 {by('survey')} / 모델 {by('model')} / 검수O {by('approved')} / 미검수 {by('unreviewed')}) · 보완 간선 {len(comps)}")
     print(f"정책 차단 {len(blocked)} · 정책 충돌 {len(conflicts)} · 콤보 {sum(map(len, combos.values()))} · 트렌드 {len(trends)}")
     print(f"→ out/graph.cypher ({len(stmts)}문), out/edges.csv, out/products_enriched.csv, out/combos.csv, out/blocked.csv, out/audit.md")
     if args.push:
@@ -1419,6 +1538,7 @@ def main():
     op.set_defaults(fn=cmd_oos)
     sub.add_parser("survey").set_defaults(fn=cmd_survey)
     sub.add_parser("taxofit").set_defaults(fn=cmd_taxofit)
+    sub.add_parser("distill").set_defaults(fn=cmd_distill)
     sub.add_parser("rankeval").set_defaults(fn=cmd_rankeval)
     gp = sub.add_parser("graph")
     gp.add_argument("--k", type=int, default=5, help="상품당 대체 간선 최대 수")
