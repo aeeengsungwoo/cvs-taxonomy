@@ -1,0 +1,12 @@
+# python cvs.py sweep 이 생성. 직접 고치지 말고 검수셋을 늘린 뒤 다시 sweep 할 것.
+max_depth: 3
+depth_mult:
+  1: 1.0
+  2: 0.5
+  3: 0.5
+  4: 1.0
+metrics:
+  auc: 0.9882
+  mrr: 0.9167
+  objective: 0.9525
+  gold_pairs: 49

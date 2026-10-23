@@ -1,0 +1,50 @@
+anchor,candidate,label,source,note
+S01,S02,1,seed,같은 생감자 오리지널칩
+S01,S05,1,seed,짠 감자칩
+S01,S04,1,seed,감자칩 단짠
+S01,S03,1,seed,감자칩 양념
+S01,S31,0,seed,칩 vs 케이크
+S14,S15,1,seed,해산물 소맥스낵
+S14,S16,1,seed,소맥스낵 안주
+S14,S35,0,seed,스낵 vs 초콜릿
+S14,S43,1,seed,새우깡 계열 안주
+S10,S09,1,seed,옥수수 스낵
+S10,S11,1,seed,옥수수 압출
+S07,S08,1,seed,곡물칩
+S12,S13,1,seed,단맛 팽화 아이간식
+S17,S18,1,seed,단맛 소맥튀김
+S20,S21,1,seed,크래커
+S21,S22,1,seed,크래커
+S20,S01,0,seed,크래커 vs 감자칩
+S23,S24,1,seed,초코칩 쿠키
+S25,S26,1,seed,버터·통밀 쿠키
+S23,S31,0,seed,쿠키 vs 케이크
+S31,S32,1,seed,초코케이크
+S31,S33,1,seed,초코케이크
+S33,S34,1,seed,개별포장 케이크
+S31,S14,0,seed,케이크 vs 스낵
+S35,S37,1,seed,판초콜릿
+S35,S36,1,seed,판초콜릿
+S38,S35,1,seed,초콜릿바
+S28,S35,0,seed,빼빼로 vs 판초콜릿(용도 다름)
+S40,S41,1,seed,츄잉캔디
+S39,S40,1,seed,젤리·캔디
+S42,S39,0,seed,껌 vs 젤리
+S42,S40,0,seed,껌 vs 캔디
+S19,S10,0,seed,안주 견과 vs 옥수수스낵
+R01,R03,1,seed,얼큰 봉지라면
+R01,R05,1,seed,국민 봉지라면
+R01,R06,1,seed,국민 봉지라면
+R04,R06,1,seed,순한 봉지라면
+R01,R13,0,seed,국물 vs 짜장(보완재 짜파구리)
+R07,R08,1,seed,해물 매운국물
+R08,R09,1,seed,짬뽕
+R13,R14,0,seed,짜장 vs 극강매운볶음
+R14,R15,0,seed,볶음 vs 차가운 비빔
+R02,R16,1,seed,큰컵 얼큰
+R02,R17,1,seed,큰컵 얼큰
+R10,R18,1,seed,작은컵
+R11,R04,1,seed,순한 국물
+R12,R11,0,seed,우동 vs 곰탕
+R12,R02,0,seed,우동 vs 얼큰
+R14,R01,0,seed,극강볶음 vs 국물

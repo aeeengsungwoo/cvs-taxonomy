@@ -1,0 +1,113 @@
+# 카테고리 트리. id는 부모 id + "." + 하위코드 (트리 유사도 계산에 그대로 쓰인다).
+# 모든 노드에 definition 필수 — `python cvs.py validate` 가 빠진 정의를 잡아낸다.
+- id: SNK
+  name: 과자
+  definition: 조리 없이 개봉 즉시 먹는 상온 유통 기호식품. 식사가 아니라 간식·안주·디저트 목적.
+  children:
+    - id: SNK.CHIP
+      name: 칩
+      definition: 얇은 판 형태로 튀기거나 구워 '바삭/파삭' 식감이 핵심인 스낵.
+      children:
+        - id: SNK.CHIP.POTATO
+          name: 생감자칩
+          definition: 생감자를 그대로 얇게 썰어 튀긴 칩. 감자 본연의 풍미와 불규칙한 모양이 특징.
+        - id: SNK.CHIP.SHAPED
+          name: 성형칩
+          definition: 감자·곡물 가루 반죽을 일정한 모양으로 찍어 만든 칩. 모양·두께가 균일하다.
+        - id: SNK.CHIP.GRAIN
+          name: 곡물칩
+          definition: 옥수수·통밀 등 곡물 반죽을 판·다층 형태로 만든 칩.
+    - id: SNK.EXT
+      name: 팽화·압출 스낵
+      definition: 곡물 반죽을 고압에서 밀어내 부풀린(팽화) 스낵. 가볍고 입에서 부서지는 식감.
+    - id: SNK.WHEAT
+      name: 소맥 튀김 스낵
+      definition: 밀가루 반죽을 성형해 튀긴 스낵. 새우·양파 등 시즈닝으로 맛을 낸다. 국내 스낵의 전통 축.
+    - id: SNK.NUT
+      name: 견과 스낵
+      definition: 견과(주로 땅콩)가 핵심 원료이거나 견과를 반죽으로 감싼 스낵. 안주 성격이 강하다.
+- id: BIS
+  name: 비스킷·쿠키
+  definition: 밀가루 반죽을 오븐에 구운 과자. 튀김이 아니라 '구움'이 공통 제조방식.
+  children:
+    - id: BIS.CRACKER
+      name: 크래커
+      definition: 당 함량이 낮고 담백·짭짤한 얇은 구운 과자. 단독 또는 다른 음식과 곁들여 먹는다.
+    - id: BIS.COOKIE
+      name: 쿠키
+      definition: 버터·설탕 비중이 높아 단맛이 주가 되는 구운 과자. 초코칩 등 첨가물을 넣는 경우가 많다.
+    - id: BIS.WAFER
+      name: 웨하스·롤
+      definition: 아주 얇게 구운 반죽을 겹치거나 말아 크림을 넣은 과자. 가볍게 부서지는 식감.
+    - id: BIS.STICK
+      name: 스틱
+      definition: 막대 모양 비스킷에 초콜릿 등을 입힌 과자. 한 손으로 집어 먹는 형태가 핵심.
+    - id: BIS.SANDWICH
+      name: 샌드
+      definition: 비스킷 두 장 사이에 크림을 넣은 과자.
+    - id: BIS.CHOUX
+      name: 슈볼
+      definition: 속이 빈 작은 슈 반죽을 구워 크림을 채운 과자.
+- id: CAKE
+  name: 파이·케이크
+  definition: 부드러운 케이크 시트(빵에 가까운 식감)에 크림·마시멜로 등을 넣고 개별포장한 과자.
+  children:
+    - id: CAKE.CHOCO
+      name: 초코 코팅 케이크
+      definition: 겉면을 초콜릿으로 코팅한 케이크형 과자.
+    - id: CAKE.PLAIN
+      name: 비코팅 케이크
+      definition: 초콜릿 코팅 없이 시트 자체의 맛(커스터드·버터 등)이 중심인 케이크형 과자.
+- id: CHO
+  name: 초콜릿
+  definition: 카카오(초콜릿)가 주성분이고 녹는 식감이 중심인 과자.
+  children:
+    - id: CHO.BAR
+      name: 판·바 초콜릿
+      definition: 판형이나 막대형으로 성형한 초콜릿. 퍼프·견과·캐러멜 등이 섞이기도 한다.
+- id: CDY
+  name: 캔디·젤리·껌
+  definition: 당류를 굳히거나 졸여 만든 과자. 씹거나 녹여 먹으며 오래 입에 머문다.
+  children:
+    - id: CDY.JELLY
+      name: 젤리
+      definition: 젤라틴·펙틴 등으로 굳혀 탄력 있게 씹히는 과자.
+    - id: CDY.CHEWY
+      name: 츄잉캔디
+      definition: 씹으면 늘어나며 녹는 말랑한 캔디. 과일맛·새콤한맛이 주류.
+    - id: CDY.GUM
+      name: 껌
+      definition: 삼키지 않고 씹기만 하는 과자. 입가심·구취 제거 목적이 강하다.
+- id: RMN
+  name: 라면
+  definition: 건조·유탕 처리한 면과 스프로 구성되어 물·열을 가해 조리하는 즉석 면류. 식사(대용)가 주 목적.
+  children:
+    - id: RMN.SOUP
+      name: 국물라면
+      definition: 국물과 함께 먹는 라면. 국물 맛이 제품 정체성의 중심.
+      children:
+        - id: RMN.SOUP.SPICY
+          name: 얼큰 국물
+          definition: 고추·마늘 베이스의 빨간 국물 라면.
+        - id: RMN.SOUP.MILD
+          name: 순한·하얀 국물
+          definition: 고추 맛이 약하거나 없는, 사골·곰탕 계열 맑은/하얀 국물 라면.
+        - id: RMN.SOUP.SEAFOOD
+          name: 해물·짬뽕 국물
+          definition: 해물 풍미가 중심인 국물 라면. 짬뽕류 포함.
+        - id: RMN.SOUP.UDON
+          name: 우동
+          definition: 가쓰오·간장 베이스 국물과 굵은 면의 우동형 라면.
+    - id: RMN.DRY
+      name: 국물없는 라면
+      definition: 면을 삶은 뒤 물을 버리고 소스에 비비거나 볶아 먹는 라면.
+      children:
+        - id: RMN.DRY.JJAJANG
+          name: 짜장
+          definition: 춘장 소스로 비비는 라면.
+        - id: RMN.DRY.FRIED
+          name: 볶음
+          definition: 매운 양념 소스로 볶듯이 비비는 라면.
+        - id: RMN.DRY.BIBIM
+          name: 비빔
+          definition: 찬물에 헹군 면을 새콤달콤한 초고추장 소스에 비벼 차게 먹는 라면.
