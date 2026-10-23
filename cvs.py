@@ -5,6 +5,8 @@
   python cvs.py sweep             뎁스·가중치 튜닝 → config/weights.yaml
   python cvs.py review export     검수할 대체재 후보 → review/queue.csv
   python cvs.py review import     검수 끝난 queue → review/gold.csv
+  python cvs.py anchor            대체 기준(라인·메뉴·카테고리) 판정 → review/anchor.csv (갈리면 사람이 decision 칸에)
+  python cvs.py impact            속성 하나씩 빼 보고 유지·보류·제거 판정 → out/attribute_impact.csv
   python cvs.py graph [--push]    out/graph.cypher, out/edges.csv, out/audit.md 생성 (--push 면 Neo4j에 바로 적재)
 """
 import argparse
@@ -167,7 +169,7 @@ def evaluate(products, attrs, w, gold, blocked):
             continue
         others = [final(a, q) for _, q in ranked(products, attrs, w, a)
                   if q != b and label_of(gold, a, q) != 1]
-        rr.append(1 / (1 + sum(o > s[(a, b)] for o in others)))
+        rr.append(1 / (1 + sum((o > s[(a, b)]) + 0.5 * (o == s[(a, b)]) for o in others)))  # 동점은 절반만 앞선 것으로
     return auc, sum(rr) / len(rr)
 
 
@@ -195,8 +197,7 @@ def cmd_validate(args):
 def cmd_sweep(args):
     attrs, cats, products, _, policy, _ = load_context()
     gold = load_gold()
-    blocked = {frozenset((p["id"], q["id"])) for p, q in itertools.combinations(products.values(), 2)
-               if p["type"] == q["type"] and substitute_violations(p, q, attrs, policy)}
+    blocked = policy_blocked(products, attrs, policy)
     result = {}
     for typ in dict.fromkeys(p["type"] for p in products.values()):
         g = {k: v for k, v in gold.items() if products[k[0]]["type"] == typ}
@@ -246,7 +247,7 @@ def cmd_review(args):
     done = [r for r in queue if r["verdict"].strip().upper() in POS | NEG]
     with open(ROOT / "review/gold.csv", "a", encoding="utf-8", newline="") as f:
         csv.writer(f).writerows(
-            (r["anchor"], r["candidate"], int(r["verdict"].strip().upper() in POS), "review", r["note"])
+            (r["anchor"], r["candidate"], int(r["verdict"].strip().upper() in POS), args.source, r["note"])
             for r in done)
     write_csv("review/queue.csv", header, [[r[h] for h in header] for r in queue if r not in done])
     print(f"{len(done)}쌍 gold.csv 반영, 남은 대기 {len(queue) - len(done)}쌍. 다음: python cvs.py sweep")
@@ -365,6 +366,169 @@ def load_context():
     return attrs, cats, products, issues, policy, tpo
 
 
+def policy_blocked(products, attrs, policy):
+    """같은 type 쌍 중 대체재 하드 정책에 걸리는 쌍."""
+    return {frozenset((p["id"], q["id"])) for p, q in itertools.combinations(products.values(), 2)
+            if p["type"] == q["type"] and substitute_violations(p, q, attrs, policy)}
+
+
+# ── 앵커(대체 기준) ───────────────────────────────────────────────
+
+ANCHOR_HEADER = ["id", "name", "line", "menu", "proposed", "status", "decision", "line_candidates", "menu_candidates", "note"]
+
+
+def anchor_proposals(products, attrs, policy):
+    """ontology/policy.yaml anchor 의 자동 판정 규칙. 반환 {id: (제안, auto|pending, line 후보, menu 후보)}."""
+    out = {}
+    for p in products.values():
+        peers = [q for q in products.values() if q["id"] != p["id"] and q["type"] == p["type"]
+                 and not substitute_violations(p, q, attrs, policy)]
+        line, menu = p["attrs"].get("line"), p["attrs"].get("menu")
+        lp = [q for q in peers if line and q["attrs"].get("line") == line]
+        mp = [q for q in peers if menu and q["attrs"].get("menu") == menu]
+        if line and menu:  # 브랜드와 메뉴가 둘 다 이름에 있으면 손님이 무엇을 놓지 않을지 데이터로 못 정함
+            out[p["id"]] = ("pending", "pending", lp, mp)
+        elif lp:
+            out[p["id"]] = ("line", "auto", lp, mp)
+        elif mp:
+            out[p["id"]] = ("menu", "auto", lp, mp)
+        else:
+            out[p["id"]] = ("category", "auto", lp, mp)
+    return out
+
+
+def effective_anchors(products, attrs, policy):
+    """사람 결정(review/anchor.csv decision) > 자동 판정. pending 은 결정 전까지 category."""
+    decided = {r["id"]: r["decision"].strip() for r in read_csv("review/anchor.csv")} \
+        if (ROOT / "review/anchor.csv").exists() else {}
+    res = {}
+    for pid, (prop, status, _, _) in anchor_proposals(products, attrs, policy).items():
+        d = decided.get(pid, "")
+        res[pid] = d if d in ("line", "menu", "category") else (prop if status == "auto" else "category")
+    return res
+
+
+def anchor_hit(p, q, anchors):
+    """p 또는 q 의 앵커 값이 서로 같으면 그 앵커 이름(line/menu)."""
+    for x, y in ((p, q), (q, p)):
+        an = anchors.get(x["id"])
+        if an in ("line", "menu") and x["attrs"].get(an) and x["attrs"].get(an) == y["attrs"].get(an):
+            return an
+    return ""
+
+
+def cmd_anchor(args):
+    attrs, cats, products, _, policy, _ = load_context()
+    old = {r["id"]: r for r in read_csv("review/anchor.csv")} if (ROOT / "review/anchor.csv").exists() else {}
+    names = lambda qs: ", ".join(q["name"] for q in qs)
+    rows, pending = [], []
+    for pid, (prop, status, lp, mp) in anchor_proposals(products, attrs, policy).items():
+        p = products[pid]
+        if not (p["attrs"].get("line") or p["attrs"].get("menu")):
+            continue  # 라인·메뉴가 없으면 판단할 게 없음 → category
+        o = old.get(pid, {})
+        rows.append((pid, p["name"], p["attrs"].get("line", ""), p["attrs"].get("menu", ""), prop, status,
+                     o.get("decision", ""), names(lp), names(mp), o.get("note", "")))
+        if status == "pending" and not o.get("decision", "").strip():
+            pending.append(f"  - {p['name']}: line({p['attrs'].get('line')}) → [{names(lp) or '후보 없음'}]"
+                           f" / menu({p['attrs'].get('menu')}) → [{names(mp) or '후보 없음'}]")
+    write_csv("review/anchor.csv", ANCHOR_HEADER, rows)
+    print(f"앵커 판정 {len(rows)}개 → review/anchor.csv · 사람 결정 대기 {len(pending)}개")
+    print("\n".join(pending))
+
+
+# ── 속성 영향도 ───────────────────────────────────────────────────
+
+def structural_uses(policy, tpo):
+    """정책·TPO에서 속성 id가 쓰이는 곳. 점수와 무관하게 구조적으로 필요한 속성을 가려낸다."""
+    used = {}
+
+    def walk(node, where):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                used.setdefault(k, set()).add(where)
+                walk(v, where)
+        elif isinstance(node, list):
+            for v in node:
+                if isinstance(v, str):
+                    used.setdefault(v, set()).add(where)
+                walk(v, where)
+
+    for sec in ("identity", "substitute", "complement", "restricted"):
+        walk(policy.get(sec), f"정책:{sec}")
+    walk(tpo["rules"], "TPO 규칙")
+    walk([s["slots"] for s in tpo["scenes"]], "콤보 장면")
+    for a in ("line", "menu"):
+        used.setdefault(a, set()).add("정책:anchor")
+    used.setdefault("category", set()).add("정책:identity")
+    used.setdefault("price_band", set()).add("콤보 예산")
+    return used
+
+
+def cmd_impact(args):
+    attrs, cats, products, _, policy, tpo = load_context()
+    W, gold, cfg = load_weights(), load_gold(), policy["attribute_impact"]
+    blocked = policy_blocked(products, attrs, policy)
+    used = structural_uses(policy, tpo)
+    rows = []
+    for typ in dict.fromkeys(p["type"] for p in products.values()):
+        g = {k: v for k, v in gold.items() if products[k[0]]["type"] == typ}
+        if not any(g.values()) or all(g.values()):
+            continue
+        w = {typ: W.get(typ, DEFAULT_W)}
+        ids = [pid for pid, p in products.items() if p["type"] == typ]
+        def top5(A):  # 정책 통과 후 상위 5 대체 후보
+            return {pid: {q for _, q in [x for x in ranked(products, A, w, pid)
+                                         if frozenset((pid, x[1])) not in blocked][:5]} for pid in ids}
+
+        base = sum(evaluate(products, attrs, w, g, blocked)) / 2
+        base_top = top5(attrs)
+        for aid, a in attrs.items():
+            if typ not in a["applies_to"]:
+                continue
+            A = {k: (dict(v, weight=0) if k == aid else v) for k, v in attrs.items()}
+            delta = base - sum(evaluate(products, A, w, g, blocked)) / 2
+            new_top = top5(A)
+            churn = sum(1 - len(base_top[i] & new_top[i]) / len(base_top[i] | new_top[i])
+                        for i in ids if base_top[i] | new_top[i]) / len(ids)
+            missing = 0.0 if a.get("optional") else sum(aid not in products[i]["attrs"] for i in ids) / len(ids)
+            in_depth = a["depth"] <= w[typ]["max_depth"] and a["weight"] > 0
+            uses = " · ".join(sorted(used.get(aid, ())))
+            if not in_depth:
+                role = "미사용"
+            elif delta >= cfg["keep_delta"]:
+                role = "기여"
+            elif delta <= cfg["noise_delta"]:
+                role = "노이즈"
+            elif churn >= cfg["churn_hold"]:
+                role = "보류"
+            else:
+                role = "미미"
+            if uses:  # 정책·TPO가 쓰면 점수 기여와 무관하게 남긴다. 점수에서만 뺄지는 role 로 판단
+                verdict = "유지"
+                why = {"기여": "점수·정책 둘 다 씀", "노이즈": "정책엔 필요, 점수에선 노이즈 → 점수 가중치만 0 검토",
+                       "미미": "정책용(점수 영향 미미)", "보류": "정책용, 점수 영향은 검수로 판단",
+                       "미사용": "정책용(점수엔 안 씀)"}[role]
+            else:
+                verdict, why = {"기여": ("유지", "빼면 성능 하락"), "노이즈": ("제거 권장", "빼면 성능 상승"),
+                                "보류": ("보류", "성능은 같은데 추천 목록이 바뀜 → 검수로 판단"),
+                                "미미": ("제거 후보", "성능·추천 목록 모두 영향 미미"),
+                                "미사용": ("제거 후보", "현재 뎁스 밖이라 점수에 안 쓰임")}[role]
+            if missing >= cfg["missing_warn"]:
+                why += " · 결측 높음 → 데이터 보강"
+            rows.append((typ, aid, a["name"], a["depth"], a["weight"], "O" if in_depth else "", uses,
+                         round(delta, 4), round(churn, 3), round(missing, 2), role, verdict, why))
+    (ROOT / "out").mkdir(exist_ok=True)
+    write_csv("out/attribute_impact.csv", ["type", "attr", "name", "depth", "weight", "score_used", "structural_use",
+                                           "delta_objective", "top5_churn", "missing_rate", "score_role", "verdict", "reason"], rows)
+    for typ in dict.fromkeys(r[0] for r in rows):
+        print(f"[{typ}]")
+        for r in rows:
+            if r[0] == typ:
+                print(f"  {r[2]:<8} Δ{r[7]:+.3f} 변동 {r[8]:.2f} 점수:{r[10]:<3} → {r[11]} ({r[12]})")
+    print("→ out/attribute_impact.csv")
+
+
 # ── 간선 ──────────────────────────────────────────────────────────
 
 def edge_strength(model, label):
@@ -379,11 +543,19 @@ def edge_strength(model, label):
 def build_edges(products, attrs, policy, w, gold, k, min_score):
     """반환: 대체 간선, 보완 간선, 정책 차단 목록(튀는 추천), 정책 충돌(검수 O인데 정책 위반)."""
     subs, blocked, conflicts = {}, [], []
+    anchors = effective_anchors(products, attrs, policy)
     pairs = {tuple(sorted(pair)) for pair, lab in gold.items() if lab == 1}
-    for pid in products:
+    for pid, p in products.items():
         pairs |= {tuple(sorted((pid, q))) for sc, q in ranked(products, attrs, w, pid)[:k] if sc >= min_score}
+        an = anchors[pid]
+        if an in ("line", "menu") and p["attrs"].get(an):  # 앵커가 같은 상품은 상위 k 밖이어도 후보
+            pairs |= {tuple(sorted((pid, q["id"]))) for q in products.values()
+                      if q["id"] != pid and q["type"] == p["type"] and q["attrs"].get(an) == p["attrs"][an]}
     for a, b in sorted(pairs):
+        hit = anchor_hit(products[a], products[b], anchors)
         model = score(products[a], products[b], attrs, w)
+        if hit:
+            model = min(1.0, model + policy["anchor"]["boost"])
         label = label_of(gold, a, b)
         why = substitute_violations(products[a], products[b], attrs, policy)
         if why:
@@ -391,7 +563,7 @@ def build_edges(products, attrs, policy, w, gold, k, min_score):
             continue
         strength, review = edge_strength(model, label)
         if strength is not None:
-            subs[(a, b)] = {"strength": strength, "model_score": round(model, 3), "review": review}
+            subs[(a, b)] = {"strength": strength, "model_score": round(model, 3), "review": review, "anchor": hit}
     comps, cand = {}, {}
     rule = policy["complement"]
     for r in rule.get("pairs", []):
@@ -510,7 +682,7 @@ def to_cypher(products, attrs, cats, policy, tpo, subs, comps, combos, trends, w
                 out.append(f"MATCH {pmatch('p', p['id'])}, (t:TPO {{key: {q(f'{dim}={v}')}}}) MERGE (p)-[:AVOIDS]->(t);")
     for (a, b), e in subs.items():
         out.append(f"MATCH {pmatch('a', a)}, {pmatch('b', b)} CREATE (a)-[:SUBSTITUTE {{strength: {e['strength']}, "
-                   f"model_score: {e['model_score']}, review: {q(e['review'])}, depth: {w.get(products[a]['type'], DEFAULT_W)['max_depth']}}}]->(b);")
+                   f"model_score: {e['model_score']}, review: {q(e['review'])}, anchor: {q(e['anchor'])}, depth: {w.get(products[a]['type'], DEFAULT_W)['max_depth']}}}]->(b);")
     for (a, b), e in comps.items():
         out.append(f"MATCH {pmatch('a', a)}, {pmatch('b', b)} CREATE (a)-[:COMPLEMENT {{strength: {e['strength']}, "
                    f"reason: {q(e['reason'])}, source: {q(e['source'])}}}]->(b);")
@@ -566,15 +738,31 @@ def cmd_graph(args):
     (ROOT / "out/graph.cypher").write_text("\n".join(stmts) + "\n", encoding="utf-8")
     (ROOT / "out/audit.md").write_text(to_audit(products, tpo, subs, comps, blocked, conflicts, combos, issues), encoding="utf-8")
     name = lambda i: products[i]["name"]
-    write_csv("out/edges.csv", ["rel", "a", "a_name", "b", "b_name", "strength", "model_score", "review_or_reason"],
-              [("SUBSTITUTE", a, name(a), b, name(b), e["strength"], e["model_score"], e["review"])
+    write_csv("out/edges.csv", ["rel", "a", "a_name", "b", "b_name", "strength", "model_score", "review_or_reason", "anchor"],
+              [("SUBSTITUTE", a, name(a), b, name(b), e["strength"], e["model_score"], e["review"], e["anchor"])
                for (a, b), e in sorted(subs.items(), key=lambda x: -x[1]["strength"])]
-              + [("COMPLEMENT", a, name(a), b, name(b), e["strength"], "", e["reason"])
+              + [("COMPLEMENT", a, name(a), b, name(b), e["strength"], "", e["reason"], "")
                  for (a, b), e in sorted(comps.items(), key=lambda x: -x[1]["strength"])])
+    # 속성 증강 결과: 정규화된 속성 + 추론된 TPO + 아이덴티티 (상품 1행)
+    join = lambda v: "|".join(sorted(v)) if isinstance(v, (set, frozenset, tuple)) else ("" if v is None else str(v))
+    dims = list(tpo["dimensions"])
+    write_csv("out/products_enriched.csv",
+              ["id", "type", "name", "identity", *attrs, *[f"tpo_{d}" for d in dims], *[f"avoid_{d}" for d in dims]],
+              [(p["id"], p["type"], p["name"], "/".join(str(x) for x in identity(p, policy)),
+                *[join(p["attrs"].get(a)) for a in attrs],
+                *[join(p["tpo"].get(d, ())) for d in dims], *[join(p["tpo_excl"].get(d, ())) for d in dims])
+               for p in products.values()])
+    write_csv("out/combos.csv", ["scene_id", "scene", "rank", "score", "price", "role", "product_id", "product"],
+              [(sc["id"], sc["name"], i, cs, total, slot["role"], p["id"], p["name"])
+               for sc in tpo["scenes"] for i, (cs, total, items) in enumerate(combos[sc["id"]], 1)
+               for slot, p in zip(sc["slots"], items)])
+    write_csv("out/blocked.csv", ["kind", "rel", "a", "a_name", "b", "b_name", "score", "reason"],
+              [("정책 충돌", r, a, name(a), b, name(b), s, why) for r, a, b, s, why in conflicts]
+              + [("정책 차단", r, a, name(a), b, name(b), s, why) for r, a, b, s, why in sorted(blocked, key=lambda x: -x[3])])
     by = lambda key: sum(e["review"] == key for e in subs.values())
     print(f"대체 간선 {len(subs)} (검수O {by('approved')} / 미검수 {by('unreviewed')}) · 보완 간선 {len(comps)}")
     print(f"정책 차단 {len(blocked)} · 정책 충돌 {len(conflicts)} · 콤보 {sum(map(len, combos.values()))} · 트렌드 {len(trends)}")
-    print(f"→ out/graph.cypher ({len(stmts)}문), out/edges.csv, out/audit.md")
+    print(f"→ out/graph.cypher ({len(stmts)}문), out/edges.csv, out/products_enriched.csv, out/combos.csv, out/blocked.csv, out/audit.md")
     if args.push:
         from neo4j import GraphDatabase  # pip install neo4j
         uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
@@ -597,7 +785,10 @@ def main():
     rp = sub.add_parser("review")
     rp.add_argument("action", choices=["export", "import"])
     rp.add_argument("--k", type=int, default=3, help="상품당 검수 후보 수")
+    rp.add_argument("--source", default="review", help="gold.csv source 칸 (사람=review, AI 1차 검수=claude)")
     rp.set_defaults(fn=cmd_review)
+    sub.add_parser("anchor").set_defaults(fn=cmd_anchor)
+    sub.add_parser("impact").set_defaults(fn=cmd_impact)
     gp = sub.add_parser("graph")
     gp.add_argument("--k", type=int, default=5, help="상품당 대체 간선 최대 수")
     gp.add_argument("--min-score", type=float, default=0.55, help="미검수 대체 간선의 최소 모델 점수")

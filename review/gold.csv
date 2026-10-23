@@ -77,3 +77,151 @@ H04,H06,1,seed,칫솔
 H04,H05,0,seed,칫솔 vs 치약(보완)
 H08,H09,0,seed,면도기 vs 폼(보완)
 H16,H17,0,seed,마스크 vs 우산
+S02,S03,1,claude,감자칩끼리
+S02,S08,1,claude,짠 칩
+S03,S04,1,claude,감자칩
+S04,S02,1,claude,감자칩
+S05,S02,1,claude,짠 감자칩
+S05,S04,1,claude,감자칩
+S06,S05,1,claude,성형 감자 스낵
+S06,S03,1,claude,감자 스낵
+S06,S02,1,claude,감자 스낵
+S07,S09,1,claude,옥수수칩
+S07,S03,0,claude,콘스프 단짠 vs 고추장 양념
+S08,S09,1,claude,곡물칩
+S09,S02,1,claude,짠 칩
+S10,S07,1,claude,옥수수 스낵
+S11,S12,0,claude,매콤달콤 vs 바나나 단맛
+S11,S13,0,claude,매콤 옥수수 vs 단 곡물 팽화
+S12,S10,0,claude,단맛 vs 고소한 짠맛
+S13,S17,1,claude,단 곡물 스낵
+S15,S16,1,claude,짠 소맥 안주
+S15,S43,1,claude,해산물 안주
+S16,S17,0,claude,짠 양파 vs 꿀 단맛
+S17,S14,0,claude,단맛 vs 짠 새우
+S18,S16,0,claude,단 땅콩 vs 짠 양파
+S18,S15,0,claude,단맛 vs 짠 해산물
+S19,S43,1,claude,해산물 안주
+S19,S15,1,claude,해산물 안주
+S19,S14,1,claude,해산물 안주
+S20,S22,1,claude,크래커
+S20,S29,0,claude,짠 크래커 vs 초코 샌드
+S21,S27,0,claude,크래커 vs 웨하스
+S22,S27,0,claude,크래커 vs 버터 웨하스
+S23,S28,0,claude,쿠키 vs 스틱(용도 다름)
+S23,S29,1,claude,초코 쿠키류
+S24,S29,1,claude,초코 쿠키류
+S24,S26,0,claude,초코 촉촉 vs 통밀 바삭
+S25,S27,1,claude,버터 과자
+S25,S24,0,claude,버터 vs 초코
+S26,S23,0,claude,통밀 바삭 vs 초코 촉촉
+S28,S29,0,claude,스틱 vs 샌드
+S28,S24,0,claude,스틱 vs 쿠키
+S30,S29,0,claude,슈볼 vs 샌드
+S30,S28,0,claude,슈볼 vs 스틱
+S30,S24,0,claude,슈볼 vs 쿠키
+S31,S34,1,claude,개별포장 케이크
+S32,S33,1,claude,초코 케이크
+S32,S34,1,claude,개별포장 케이크
+S36,S37,1,claude,판초콜릿
+S36,S38,0,claude,판초콜릿 vs 땅콩 바
+S37,S38,0,claude,판초콜릿 vs 땅콩 바
+S39,S41,1,claude,과일 젤리·캔디
+S43,S16,1,claude,짠 소맥 안주
+R01,R04,0,claude,매운맛 찾는 손님에게 순한맛 X
+R03,R06,1,claude,국민 봉지라면
+R03,R05,1,claude,국민 봉지라면
+R03,R04,0,claude,매운맛 vs 순한맛
+R04,R05,1,claude,순한 봉지라면
+R05,R06,1,claude,순한 봉지라면
+R07,R09,1,claude,해물 얼큰
+R07,R11,0,claude,얼큰 해물 vs 하얀 곰탕
+R08,R11,0,claude,짬뽕 vs 곰탕
+R09,R11,0,claude,짬뽕 vs 곰탕
+R10,R17,0,claude,작은컵 vs 큰컵 얼큰참깨
+R10,R16,0,claude,작은컵 vs 큰컵
+R12,R17,0,claude,우동 vs 얼큰
+R12,R16,0,claude,우동 vs 얼큰
+R16,R17,1,claude,큰컵 얼큰
+R18,R17,0,claude,당면 작은컵 vs 큰컵
+R18,R16,0,claude,당면 작은컵 vs 큰컵
+B02,B05,1,claude,제로 탄산
+B03,B05,1,claude,제로 탄산
+B07,B08,0,claude,블랙 vs 라떼
+B10,B12,0,claude,흰우유 vs 초코우유
+B24,B27,0,claude,맥주 vs 막걸리
+S07,S02,0,claude,콘스프 단짠 vs 짠 감자칩
+S17,S43,0,claude,꿀 단맛 vs 짠 안주
+S18,S43,0,claude,단 땅콩 vs 짠 안주
+S23,S25,0,claude,초코 촉촉 vs 버터 바삭
+R02,R03,0,claude,컵 vs 봉지(냄비 없음)
+R07,R03,1,claude,얼큰 봉지라면
+R08,R03,0,claude,짬뽕 vs 소고기 국물
+R09,R03,0,claude,짬뽕 vs 소고기 국물
+R10,R03,0,claude,컵 vs 봉지
+R11,R06,0,claude,곰탕 vs 일반 라면
+R11,R05,0,claude,곰탕 vs 된장 라면
+R16,R03,0,claude,컵 vs 봉지
+R17,R03,0,claude,컵 vs 봉지
+R18,R05,0,claude,컵 vs 봉지
+S01,S08,1,claude,짠 칩
+S03,S09,0,claude,고추장 양념 vs 군옥수수 단맛
+S03,S43,0,claude,감자칩 vs 소맥 안주
+S04,S09,1,claude,단짠 칩
+S05,S03,0,claude,오리지널 vs 양념
+S06,S08,0,claude,치즈 감자 vs 통밀칩
+S06,S09,0,claude,치즈 감자 vs 옥수수
+S07,S18,0,claude,칩 vs 땅콩 과자
+S07,S17,0,claude,칩 vs 꿀 과자
+S08,S03,0,claude,담백 통밀 vs 양념
+S09,S18,0,claude,칩 vs 땅콩 과자
+S10,S08,1,claude,고소한 곡물 스낵
+S11,S09,0,claude,매콤달콤 vs 군옥수수
+S11,S07,0,claude,매콤달콤 vs 콘스프
+S12,S09,0,claude,바나나 vs 옥수수
+S12,S07,0,claude,바나나 vs 콘스프
+S13,S10,0,claude,단 팽화 vs 짠 옥수수
+S13,S18,1,claude,단 곡물 과자
+S15,S17,0,claude,짠 해산물 vs 꿀 단맛
+S18,S14,0,claude,단맛 vs 짠 새우
+S19,S18,0,claude,짠 안주 vs 단 과자
+S19,S16,1,claude,짠 안주
+S20,S28,0,claude,크래커 vs 초코 스틱
+S20,S30,0,claude,크래커 vs 초코 슈볼
+S21,S25,0,claude,크래커 vs 버터 쿠키
+S21,S29,0,claude,크래커 vs 초코 샌드
+S22,S29,0,claude,크래커 vs 초코 샌드
+S22,S25,1,claude,버터 풍미 과자
+S25,S29,0,claude,버터 vs 초코
+S26,S29,0,claude,통밀 vs 초코 샌드
+S26,S22,1,claude,담백 비스킷
+S27,S24,0,claude,웨하스 vs 초코 쿠키
+S27,S23,0,claude,웨하스 vs 초코 쿠키
+S28,S25,0,claude,초코 스틱 vs 버터 쿠키
+S30,S23,1,claude,초코 한입 과자
+S30,S22,0,claude,초코 vs 크래커
+R01,R09,0,claude,소고기 얼큰 vs 짬뽕
+R07,R01,1,claude,얼큰 봉지라면
+R07,R05,0,claude,얼큰 해물 vs 순한 된장
+R08,R01,0,claude,짬뽕 vs 소고기 얼큰
+R08,R05,0,claude,짬뽕 vs 된장
+R09,R05,0,claude,짬뽕 vs 된장
+S05,S08,1,claude,짠 칩
+S10,S02,1,claude,짠 고소한 스낵
+S11,S03,1,claude,매콤달콤 스낵
+S11,S43,0,claude,아이 간식 vs 성인 안주
+S11,S18,0,claude,매콤 vs 단 땅콩
+S12,S18,1,claude,단 과자
+S12,S17,1,claude,단 과자
+S19,S08,0,claude,해산물 안주 vs 담백 칩
+S19,S02,1,claude,짠 안주
+S21,S26,1,claude,담백 비스킷
+S27,S30,0,claude,버터 웨하스 vs 초코 슈볼
+S27,S29,0,claude,버터 웨하스 vs 초코 샌드
+R19,R20,1,review,불닭 큰컵 → 까르보불닭 큰컵 (피드백: 인간 검수 합격)
+R02,R22,1,claude,얼큰 국물 큰컵
+R02,R21,1,claude,얼큰 국물 큰컵
+R16,R22,1,claude,얼큰 국물 큰컵
+R16,R21,1,claude,얼큰 국물 큰컵
+R17,R22,0,claude,고소한 참깨 vs 새콤한 김치
+R17,R21,0,claude,고소한 참깨 vs 새콤한 김치

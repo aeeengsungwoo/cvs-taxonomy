@@ -120,17 +120,19 @@ def main():
                              ("sweep 결과", f"과자 ≤{depth('snack')} · 라면 ≤{depth('ramen')}\n"
                                           f"음료 ≤{depth('beverage')} · 생필품 ≤{depth('household')}", "violet")]),
         ("⑥ 정책 필터", [("상품간", "구매상황 겹침 · 주류×어린이 금지", "orange"),
-                      ("규격", "가격대·용량 1 · 맵기 2 · 당 2 · 알코올 0단계 · 규격 일치", "orange"),
+                      ("규격", "가격대·용량·맵기 1 · 당 2 · 알코올 0단계\n규격·라면 포장 일치", "orange"),
                       ("아이덴티티", "같은 정체성끼리만 대체, 다른 정체성끼리만 보완", "orange"),
-                      ("TPO", "보완재는 시간대 겹침", "orange")]),
+                      ("TPO", "보완재는 시간대 겹침", "orange"),
+                      ("앵커", "라인·메뉴 같으면 +0.25\n둘 다 있으면 사람 결정", "orange")]),
         ("⑦ 추천 간선", [(f"대체재 {len(subs)}", "검수 O: 0.5 + 0.5×점수\n미검수: 0.8×점수", "green"),
                       (f"보완재 {len(comps)}", "지정 조합 0.6~0.9\n속성 규칙 0.25~0.5", "green"),
                       (f"콤보 {sum(map(len, combos.values()))}", f"장면 {len(tpo['scenes'])}개 × 상위 5", "green"),
                       ("트렌드", "판매·검색 데이터 대기", "green")]),
         ("⑧ 적재 · 검수", [("Neo4j", "out/graph.cypher", "gray"),
-                        ("인간 검수", "audit.md 확인\nqueue.csv에 O / X", "pink")]),
+                        ("속성 영향도", "빼 보고 영향 없으면\n제거 후보", "pink"),
+                        ("인간 검수", "queue.csv에 O / X\nanchor.csv에 기준", "pink")]),
     ]
-    cw, gap = 164, 26
+    cw, gap = 158, 22
     fy, top = y, y + 34
     heights, review_xy, score_x, attr_x = [], None, None, None
     x = X0 + 16
