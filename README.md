@@ -191,6 +191,13 @@ flowchart LR
 포함 정책: 세트는 구성품을 대신할 수 있다(칫솔 품절 → 여행용 칫솔치약 세트, 반대는 안 됨).
 기획과 판정 기준은 [`docs/hitl_plan.md`](docs/hitl_plan.md).
 
+### 외부 사람 라벨로 검증 — Amazon ESCI
+
+Amazon ESCI(검색어 × 상품 260만 쌍, 사람 라벨 E/S/C/I) 중 편의점 관련 25,079쌍으로 정책을 대조했다 → [`docs/esci_check.md`](docs/esci_check.md).
+검색 적합도 라벨이라 품절 대체의 정답으로는 못 쓰지만(디카페인 질의에 일반 커피 E 등), 두 가지는 쓸 만하다.
+- 브랜드 충성도는 카테고리마다 다르다: 펩시 질의 → 다른 브랜드 87% I, 듀라셀·농심 질의 → 다른 브랜드 86~93% S.
+- 규격(AA ↔ AAA)은 I가 기준선 0% 대비 19~50%로 높다 — 금지 유지.
+
 ## 정책 (튀는 추천 방지)
 
 `ontology/policy.yaml`. 점수와 별개인 하드 조건이다. 위반하면 간선을 만들지 않고 `out/audit.md` 에 사유를 남긴다.
@@ -299,6 +306,7 @@ MATCH (c:Combo)-[:FOR]->(:Scene {id:'rainy_commute'}), (c)-[i:INCLUDES]->(p) RET
 | `review/gold.csv` · `review/queue.csv` | 검수 정답셋(source: seed · claude · review) · 검수 대기 |
 | `review/anchor.csv` | 상품별 대체 기준 판정 · 사람 결정 칸 |
 | `review/admin_queue.csv` · `review/auto_labels.csv` | 관리자 질문(정책 문항·상품쌍) · 자동 판정과 근거 |
+| `out/esci_policy_check.csv` · `out/esci_samples.csv` | ESCI 사람 라벨로 본 정책별 E/S/C/I 분포 · 샘플 |
 | `out/oos_recommendations.csv` | 상품별 품절 시 대신 권할 상품 3개와 이유 |
 | `out/product_vectors.csv` · `docs/product_map.svg` | 상품 벡터 지도 좌표·가장 가까운 3개 · 지도 |
 | `out/edges.csv` · `out/graph.cypher` | 추천 간선(강도·검수 상태·앵커) · Neo4j 적재 스크립트 |
