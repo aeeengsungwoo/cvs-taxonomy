@@ -18,17 +18,27 @@ identity:
 substitute:
   definition: 같은 욕구를 채우는 다른 상품. 같은 type, 같은 목적, 같은 규격대여야 한다.
   snack: {category_level: 1, share: [occasion]}      # 대분류 같고 구매상황 겹침
-  ramen: {same: [style, container], share: [occasion]}  # 조리형태·포장형태 같음 (국물↔짜장, 봉지↔컵 대체 금지 — 2차 검수에서 추가)
+  # 조리형태·포장형태 같음 (국물↔짜장, 봉지↔컵 대체 금지 — 2차 검수에서 추가)
+  # 설문: 같은 라인이면 봉지 ↔ 큰컵 4쌍 모두 O (불닭 → 불닭 큰컵 100%, 신라면 → 신라면 큰사발 71%) — 다른 라인 작은컵 → 봉지는 5쌍 모두 X
+  ramen: {same: [style, container], same_unless_line: [container], share: [occasion]}
   beverage: {category_level: 2, share: [occasion]}   # 탄산은 탄산끼리, 커피는 커피끼리
-  household: {category_level: 3, same: [spec]}       # 같은 품목 + 규격 일치 (AA ↔ AAA 금지)
+  # 같은 품목 + 규격 일치 (AA ↔ AAA 금지). 설문: 생리대 중형 ↔ 대형 ↔ 오버나이트는 4쌍 O (급할 땐 한 사이즈 차이는 산다)
+  household: {category_level: 3, same: [spec], loose: {spec: [HOU.FEM]}}
   # 규격 정책: 순서 속성의 허용 최대 단계 차이.
   #   가격대·용량 1단계 — 1,500원 과자 대신 5,000원 박스를 권하지 않는다
   #   맵기 1단계 — 신라면(중) 대신 사리곰탕(없음)을 권하지 않는다 (3차 검수에서 2→1)
   #   알코올 0단계 — 맥주 대신 소주를 권하지 않는다
   max_gap: {price_band: 1, size: 1, abv: 0}
   # 포함 정책: 세트는 그 구성품을 대신할 수 있다(칫솔 품절 → 여행용 칫솔치약 세트). 반대(세트 → 칫솔만)는 구성품이 빠지므로 안 된다.
+  # 설문: 세트 품절 → 칫솔·치약 낱개도 97% O. 처음 정한 '반대는 안 됨'을 뒤집어 양방향으로
   includes:
-    - {set: HOU.ORAL.KIT, covers: [HOU.ORAL.BRUSH, HOU.ORAL.PASTE]}
+    - {set: HOU.ORAL.KIT, covers: [HOU.ORAL.BRUSH, HOU.ORAL.PASTE], two_way: true}
+  # 묶음: 카테고리는 다르지만 손님이 같은 욕구로 보는 것 (설문 2쌍 이상 O)
+  #   물 ↔ 무가당 차 8쌍 모두 O (50~83%) · 빼빼로 → 초코바 3쌍 O (78~83%) · 화장지·각티슈 → 물티슈 2쌍 O
+  groups:
+    - {name: 갈증 해소 음료, cats: [BEV.WATER, BEV.TEA]}
+    - {name: 초코 간식, cats: [BIS.STICK, CHO.BAR]}
+    - {name: 휴지류, cats: [HOU.PAPER.DRY, HOU.PAPER.WET]}
   # 방향 정책: 찾는 상품 → 권할 상품 방향에 따라 허용 단계가 다르다. up = 값이 커지는 쪽(당 많아짐·더 매움·카페인 많아짐).
   #   당      up 1 — 단, 제로·저당(없음·적음)을 고른 손님에게 당이 더 많은 것은 절대 금지 (hard_from, 건강 제약, 관리자 질문 없음)
   #           down 3 — 코카콜라 → 코카콜라 제로는 허용하되 강도 감점. 매장마다 다를 수 있어 관리자에게 정책 1문항으로 묻는다
@@ -36,8 +46,11 @@ substitute:
   #   카페인  up 1 — 한 단계(사이다 → 콜라)는 감점 허용, 디카페인 → 일반 커피처럼 큰 차이는 금지
   # ask 가 있는 방향은 관리자 질문으로 확정한다(review/admin_queue.csv). 답이 X면 그 방향 허용 단계가 0이 된다.
   direction:
-    sugar:    {up: 1, hard_from: [없음, 적음], down: 3, penalty: {down: 0.15}, ask: {down: "당 높은 상품 → 제로·저당 상품 대체 허용 (예: 코카콜라 → 코카콜라 제로)"}}
-    spicy:    {up: 1, free_up_to: 약, down: 1, penalty: {up: 0.1}, ask: {up: "덜 매운 상품 → 한 단계 더 매운 상품(중 이상) 대체 허용 (예: 진라면 순한맛 → 진라면 매운맛)"}}
+    # 설문: 같은 라인 안의 당 올림은 O (코카콜라 제로 → 코카콜라 70%, 칠성 제로 → 칠성 72%, 더블랙 → 스위트 57%), 다른 라인은 X
+    #   단 다이어트·당뇨 응답자는 전원 X → 허용하되 감점하고 점원 순서 맨 뒤 (같은 제로 상품이 있으면 그게 먼저)
+    sugar:    {up: 1, hard_from: [없음, 적음], line_free: true, down: 3, penalty: {down: 0.15, up: 0.15}, ask: {down: "당 높은 상품 → 제로·저당 상품 대체 허용 (예: 코카콜라 → 코카콜라 제로)"}}
+    # 설문: 이미 매운 것(중 이상)을 고른 손님에게 더 매운 것은 5쌍 모두 O (까르보 → 불닭 87%) → free_from: 중
+    spicy:    {up: 1, free_up_to: 약, free_from: 중, down: 1, penalty: {up: 0.1}, ask: {up: "덜 매운 상품 → 한 단계 더 매운 상품(중 이상) 대체 허용 (예: 진라면 순한맛 → 진라면 매운맛)"}}
     caffeine: {up: 1, down: 3, penalty: {up: 0.1}}
 
 # 상품간 정책 2 — 보완재: 같이 사면 가치가 커지는가. type을 넘나들 수 있다.
@@ -171,3 +184,7 @@ oos:
   # 순서: 같은 라인(당·맵기·카페인이 더 세지지 않는 쪽) → 같은 세부 카테고리 → 나머지, 같은 단계 안에서는 강도순
   # TPO: 대안이 지금 상황을 피하는 상품이면 빼되, 손님이 고른 상품도 그 상황을 피하면 손님 선택 우선
   quiet_flavors: [매운맛, 짠맛, 감칠맛, 고소한맛, 고기]   # 이유에 굳이 말하지 않는 흔한 맛
+
+# 페르소나 설문(survey/) 판정 기준. 응답자 = 그 상품을 살 일이 있는 사람(skip 제외)
+#   min_n 명 이상 답한 보기만 판정, accept 이상이 '대신 산다' → O, reject 이하 → X, 사이는 갈림
+survey: {min_n: 5, accept: 0.5, reject: 0.2}

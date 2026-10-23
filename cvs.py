@@ -10,6 +10,7 @@
   python cvs.py triage            벡터 근처 후보 자동 판정 + 관리자 질문 → review/auto_labels.csv, review/admin_queue.csv
   python cvs.py admin             관리자 답 반영 (상품쌍 → gold.csv, 정책 문항 → 방향 정책)
   python cvs.py oos 코카콜라      품절 시 대신 권할 상품과 이유 (--also-out, --context weather=더움, --all)
+  python cvs.py survey            페르소나 설문 집계 → 기존 라벨과 대조, 품절 추천 precision/recall (out/survey_*.csv)
   python cvs.py graph [--push]    out/graph.cypher, out/edges.csv, out/audit.md 생성 (--push 면 Neo4j에 바로 적재)
 """
 import argparse
@@ -331,13 +332,19 @@ def substitute_violations(p, q, attrs, policy):
     """대체재 하드 정책 위반 사유 목록. 비어 있으면 통과. 결측 값은 판단 보류(위반 아님)."""
     if p["type"] != q["type"]:
         return ["상품간: type 다름"]
-    rule, out = policy["substitute"][p["type"]], []
-    covers = any(matches(q, {"category": i["set"]}) and any(matches(p, {"category": c}) for c in i["covers"])
-                 for i in policy["substitute"].get("includes", []))  # 구성품 → 세트는 아이덴티티가 달라도 대체 (반대는 안 됨)
-    if "category_level" in rule and not covers and cat_prefix(p, rule["category_level"]) != cat_prefix(q, rule["category_level"]):
+    sub, rule, out = policy["substitute"], policy["substitute"][p["type"]], []
+    line = bool(p["attrs"].get("line")) and p["attrs"].get("line") == q["attrs"].get("line")
+    within = lambda cs: any(matches(p, {"category": c}) for c in cs) and any(matches(q, {"category": c}) for c in cs)
+    covers = any(within([i["set"], *i["covers"]]) if i.get("two_way") else
+                 matches(q, {"category": i["set"]}) and any(matches(p, {"category": c}) for c in i["covers"])
+                 for i in sub.get("includes", []))  # 세트 ↔ 구성품은 아이덴티티가 달라도 대체
+    grouped = any(within(g["cats"]) for g in sub.get("groups", []))  # 손님이 같은 욕구로 보는 카테고리 묶음 (물 ↔ 차)
+    if "category_level" in rule and not (covers or grouped) and cat_prefix(p, rule["category_level"]) != cat_prefix(q, rule["category_level"]):
         out.append(f"아이덴티티: 카테고리 {rule['category_level']}단계 다름")
     for aid in rule.get("same", []):
         a, b = p["attrs"].get(aid), q["attrs"].get(aid)
+        if (aid in rule.get("same_unless_line", []) and line) or within(rule.get("loose", {}).get(aid, [])):
+            continue  # 같은 라인이면 포장형태가 달라도 됨 (불닭 봉지 → 불닭 큰컵) · 생리대는 사이즈 한 단계 차이 허용
         if a is not None and b is not None and a != b:
             out.append(f"아이덴티티: {attrs[aid]['name']} 다름({a}/{b})")
     for aid in rule.get("share", []):
@@ -345,10 +352,12 @@ def substitute_violations(p, q, attrs, policy):
         if a is not None and b is not None and not as_set(a) & as_set(b):
             out.append(f"상품간: {attrs[aid]['name']} 겹침 없음")
     for aid, step in direction_steps(p, q, attrs, policy).items():
-        r, way = policy["substitute"]["direction"][aid], "up" if step > 0 else "down"
+        r, way = sub["direction"][aid], "up" if step > 0 else "down"
+        if r.get("line_free") and line:
+            continue  # 같은 라인 안에서는 방향 제한 없음 (코카콜라 제로 → 코카콜라). 감점과 점원 순서(뒤로)는 그대로
         if abs(step) > r[way] or (step > 0 and p["attrs"][aid] in r.get("hard_from", [])):  # 제로를 고른 손님에게 당 올림 금지
             out.append(f"방향: {attrs[aid]['name']} {p['attrs'][aid]}→{q['attrs'][aid]}")
-    for aid, gap in policy["substitute"]["max_gap"].items():
+    for aid, gap in sub["max_gap"].items():
         a, b = p["attrs"].get(aid), q["attrs"].get(aid)
         if a is not None and b is not None:
             order = list(attrs[aid]["values"])
@@ -359,14 +368,17 @@ def substitute_violations(p, q, attrs, policy):
 
 def direction_steps(p, q, attrs, policy, raw=False):
     """p 찾는 손님에게 q 를 권할 때 방향 속성별 이동 단계. {aid: +n 커짐 / -n 작아짐}
-    free_up_to 이하로 올라가는 것은 방향 정책에서 제외(안 매움 → 약간 매움). raw=True 면 그것도 포함(이유 문구용)."""
+    free_up_to 이하로 올라가는 것(안 매움 → 약간 매움)과 free_from 이상에서 올라가는 것(매운 걸 고른 손님에게 더 매운 것)은
+    방향 정책에서 제외. raw=True 면 그것도 포함(이유 문구용)."""
     out = {}
     for aid, r in policy["substitute"].get("direction", {}).items():
         a, b = p["attrs"].get(aid), q["attrs"].get(aid)
         if a is not None and b is not None and a != b:
             order = list(attrs[aid]["values"])
             st = order.index(b) - order.index(a)
-            if raw or not (st > 0 and "free_up_to" in r and order.index(b) <= order.index(r["free_up_to"])):
+            free = st > 0 and ("free_up_to" in r and order.index(b) <= order.index(r["free_up_to"])
+                               or "free_from" in r and order.index(a) >= order.index(r["free_from"]))
+            if raw or not free:
                 out[aid] = st
     return out
 
@@ -644,6 +656,7 @@ def cmd_triage(args):
     w, gold, cfg = load_weights(), load_gold(), policy["hitl"]
     M = embed(products, attrs, w)
     examples = labeled_examples(products, attrs, policy, gold)
+    survey = survey_labels(policy)  # 설문이 판정한 쌍은 관리자에게 묻지 않는다
     name = lambda i: products[i]["name"]
     old = {r["key"]: r for r in admin_rows()}
     asked = {(aid, way) for aid, r in policy["substitute"]["direction"].items() for way in r.get("ask", {})}
@@ -658,7 +671,8 @@ def cmd_triage(args):
                 seen.add((a, b))
                 pa, pb = products[a], products[b]
                 directional = bool(direction_steps(pa, pb, attrs, policy))
-                if label_of(gold, a, b, directional) is not None or substitute_violations(pa, pb, attrs, policy):
+                if (label_of(gold, a, b, directional) is not None or (a, b) in survey
+                        or substitute_violations(pa, pb, attrs, policy)):
                     continue
                 sc = score(pa, pb, attrs, w) - direction_penalty(pa, pb, attrs, policy)
                 if sc < cfg["min_score"]:
@@ -736,14 +750,17 @@ def load_auto():
     return {(r["anchor"], r["candidate"]): int(r["label"]) for r in read_csv("review/auto_labels.csv")} if path.exists() else {}
 
 
-def build_edges(products, attrs, policy, w, gold, k, min_score):
-    """반환: 대체 간선, 보완 간선, 정책 차단 목록(튀는 추천), 정책 충돌(검수 O인데 정책 위반)."""
+def build_edges(products, attrs, policy, w, gold, k, min_score, survey=None):
+    """반환: 대체 간선, 보완 간선, 정책 차단 목록(튀는 추천), 정책 충돌(검수 O인데 정책 위반).
+    survey: 설문 판정 {(a, b): (라벨, 수용률)}. 없으면 전 응답자로 만든다. 사람 검수(review) 다음으로 우선한다."""
     subs, blocked, conflicts = {}, [], []
+    survey = survey_labels(policy) if survey is None else survey
+    human = {(r["anchor"], r["candidate"]) for r in read_csv("review/gold.csv") if r["source"] == "review"}
     anchors, auto = effective_anchors(products, attrs, policy), load_auto()
     ok_ways = {tuple(r["key"].split(".")[1:]) for r in admin_rows()
                if r["kind"] == "policy" and r["answer"].strip().upper() in POS}  # 관리자가 O 한 방향 (sugar, down) …
     # 방향 있는 쌍 (a 찾는 손님에게 b). 후보는 양방향으로 넣고 방향마다 따로 정책을 건다.
-    pairs = {pair for pair, lab in gold.items() if lab == 1} | {pair for pair, lab in auto.items() if lab == 1}
+    pairs = {pair for pair, lab in gold.items() if lab == 1} | {pair for pair, lab in auto.items() if lab == 1}         | {pair for pair, (lab, _) in survey.items() if lab == 1}
     for pid, p in products.items():
         pairs |= {(pid, q) for sc, q in ranked(products, attrs, w, pid)[:k] if sc >= min_score}
         an = anchors[pid]
@@ -759,12 +776,16 @@ def build_edges(products, attrs, policy, w, gold, k, min_score):
             model = min(1.0, model + policy["anchor"]["boost"])
         model = max(0.0, model - direction_penalty(pa, pb, attrs, policy))
         label = label_of(gold, a, b, bool(direction_steps(pa, pb, attrs, policy)))
+        if (a, b) in survey and (a, b) not in human:
+            label = survey[(a, b)][0]  # 설문이 옳다고 가정 — AI 검수·관리자(AI) 라벨보다 우선
         why = substitute_violations(pa, pb, attrs, policy)
         if why:
             (conflicts if label == 1 else blocked).append(("SUBSTITUTE", a, b, round(model, 3), " · ".join(why)))
             continue
         steps = direction_steps(pa, pb, attrs, policy)
-        if label is None and steps and all((aid, "up" if st > 0 else "down") in ok_ways for aid, st in steps.items()):
+        if label == 1 and (a, b) in survey and (a, b) not in human:
+            strength, review = round(0.5 + 0.5 * survey[(a, b)][1], 3), "survey"  # 강도 = 설문 수용률 → 점원 순서가 설문을 따름
+        elif label is None and steps and all((aid, "up" if st > 0 else "down") in ok_ways for aid, st in steps.items()):
             # 이 방향은 관리자 정책 문항으로 승인됨 (코카콜라 → 코카콜라 제로)
             strength, review = round(0.5 + 0.5 * model, 3), "policy"
         else:
@@ -949,6 +970,9 @@ def explain(p, q, attrs, cats, policy):
             if c == cat_prefix(q, level) and c in cats:
                 same = f"같은 {cats[c]['name']}"
                 break
+    if not same:
+        same = next((f"같은 {g['name']}" for g in policy["substitute"].get("groups", [])
+                     if any(matches(p, {"category": c}) for c in g["cats"]) and any(matches(q, {"category": c}) for c in g["cats"])), None)
     diffs = []
     for aid, st in direction_steps(p, q, attrs, policy, raw=True).items():
         word = {"sugar": ("당", "더 많음", "더 적음"), "spicy": ("맵기", "한 단계 더 매움", "한 단계 덜 매움"),
@@ -958,7 +982,7 @@ def explain(p, q, attrs, cats, policy):
         if pa.get(aid) and qa.get(aid) and pa[aid] != qa[aid]:
             order = list(attrs[aid]["values"])
             diffs.append(up if order.index(qa[aid]) > order.index(pa[aid]) else down)
-    added = sorted(as_set(qa.get("flavor")) - as_set(pa.get("flavor")) - set(policy["oos"]["quiet_flavors"]))
+    added = sorted(as_set(qa.get("flavor") or frozenset()) - as_set(pa.get("flavor") or frozenset()) - set(policy["oos"]["quiet_flavors"]))
     if added:
         diffs.append("+" + "·".join(added))
     return " · ".join([s for s in [same] if s] + diffs[:2]) or "비슷한 상품"
@@ -1028,6 +1052,131 @@ def cmd_oos(args):
         print("  권할 대체 없음 (기준 미만은 억지로 권하지 않음)")
 
 
+# ── 페르소나 설문 ─────────────────────────────────────────────────
+
+def load_survey(only=None):
+    """survey/answers/*.json → 상품쌍별 {accept 대신 산다, best 가장 먼저 집음} 인원, 문항별 {n 응답자, none 안 산다}.
+    skip(애초에 그 상품을 살 일이 없음)한 응답자는 그 문항의 분모에서 뺀다."""
+    pairs, qs = {}, {}
+    for f in sorted((ROOT / "survey/answers").glob("P*.json")):
+        if only and f.stem not in only:
+            continue
+        for a in json.loads(f.read_text(encoding="utf-8"))["answers"]:
+            if a.get("skip"):
+                continue
+            q = qs.setdefault(a["q"], {"n": 0, "none": 0})
+            q["n"] += 1
+            q["none"] += not a["accept"]
+            for b in a["accept"]:
+                pairs.setdefault((a["q"], b), {"accept": 0, "best": 0})["accept"] += 1
+            if a.get("best"):
+                pairs.setdefault((a["q"], a["best"]), {"accept": 0, "best": 0})["best"] += 1
+    return pairs, qs
+
+
+def survey_labels(policy, only=None):
+    """설문 판정 {(a, b): (1 또는 0, 수용률)}. min_n 명 이상 답한 보기 중 accept 이상 O, reject 이하 X, 갈린 것은 뺀다."""
+    if not (ROOT / "survey/answers").exists():
+        return {}
+    cfg, (pairs, qs), out = policy["survey"], load_survey(only), {}
+    for (a, b), s in pairs.items():
+        n = qs[a]["n"]
+        if n >= cfg["min_n"]:
+            r = s["accept"] / n
+            if r >= cfg["accept"] or r <= cfg["reject"]:
+                out[(a, b)] = (int(r >= cfg["accept"]), r)
+    return out
+
+
+def survey_eval(products, attrs, cats, policy, subs, pairs, qs):
+    """품절 추천이 설문 다수와 얼마나 맞나. 추천은 여러 개라 precision/recall 로 잰다.
+    precision = 권한 것 중 응답자 과반이 '대신 산다'인 비율, recall = 과반이 받아들인 보기 중 권한 비율,
+    top1 = 1순위가 '가장 먼저 집음' 최다 보기와 같은가, 억지 = 과반이 받는 보기가 없는데 권함, 놓침 = 있는데 안 권함."""
+    cfg, rows = policy["survey"], []
+    for pid, q in qs.items():
+        if q["n"] < cfg["min_n"]:
+            continue
+        ours = [b for b, *_ in oos_recommend(pid, products, attrs, cats, policy, subs)]
+        liked = {b for (a, b), s in pairs.items() if a == pid and s["accept"] / q["n"] >= cfg["accept"]}
+        bests = sorted(((s["best"], b) for (a, b), s in pairs.items() if a == pid and s["best"]), reverse=True)
+        hit = len(set(ours) & liked)
+        rows.append({"id": pid, "name": products[pid]["name"], "n": q["n"], "none": round(q["none"] / q["n"], 2),
+                     "ours": "|".join(ours), "liked": "|".join(sorted(liked)),
+                     "precision": round(hit / len(ours), 3) if ours else "", "recall": round(hit / len(liked), 3) if liked else "",
+                     "top1": int(bool(ours) and ours[0] == bests[0][1]) if bests else "",
+                     "forced": int(bool(ours) and not liked), "missed": int(not ours and bool(liked))})
+    mean = lambda k: round(float(np.mean([r[k] for r in rows if r[k] != ""])), 3)
+    return rows, {k: mean(k) for k in ("precision", "recall", "top1")} | {
+        "forced": sum(r["forced"] for r in rows), "missed": sum(r["missed"] for r in rows), "questions": len(rows)}
+
+
+def survey_features(p, q, attrs, policy):
+    """설문 보기(p 품절 → q)의 차이 유형. 유형별 평균 수용률로 정책 값을 맞춘다.
+    주의: 보기에 없는 상품쌍(점수가 아주 낮은 쌍)은 설문에 없다 — 수용률은 '근처 상품 중에서'의 값."""
+    out = ["전체"]
+    if p["attrs"].get("line") and p["attrs"].get("line") == q["attrs"].get("line"):
+        out.append("같은 라인")
+    out.append("같은 세부 카테고리" if cat_prefix(p, 3) == cat_prefix(q, 3) else
+               "같은 중분류·다른 세부" if cat_prefix(p, 2) == cat_prefix(q, 2) else "다른 중분류")
+    out.append("같은 제조사" if p["attrs"].get("maker") == q["attrs"].get("maker") else "다른 제조사")
+    for aid, st in direction_steps(p, q, attrs, policy, raw=True).items():
+        out.append(f"{attrs[aid]['name']} {'올림' if st > 0 else '내림'}{abs(st)}")
+    for aid in ("price_band", "size"):
+        a, b = p["attrs"].get(aid), q["attrs"].get(aid)
+        if a and b and a != b:
+            order = list(attrs[aid]["values"])
+            out.append(f"{attrs[aid]['name']} {'올림' if order.index(b) > order.index(a) else '내림'}")
+    out += sorted({"차단 " + why.split(":")[0] for why in substitute_violations(p, q, attrs, policy)})
+    return out
+
+
+def cmd_survey(args):
+    attrs, cats, products, _, policy, _ = load_context()
+    pairs, qs = load_survey()
+    if not qs:
+        sys.exit("survey/answers/ 에 응답이 없다 — 설문부터 (docs/survey.md)")
+    gold = load_gold()
+    src = {(r["anchor"], r["candidate"]): r["source"] for r in read_csv("review/gold.csv")}
+    cfg, out = policy["survey"], []
+    for (a, b), s in sorted(pairs.items()):
+        n = qs[a]["n"]
+        rate = s["accept"] / n
+        verdict = "O" if n >= cfg["min_n"] and rate >= cfg["accept"] else "X" if n >= cfg["min_n"] and rate <= cfg["reject"] else ""
+        out.append([a, products[a]["name"], b, products[b]["name"], n, round(rate, 3), round(s["best"] / n, 3), verdict,
+                    gold.get((a, b), ""), src.get((a, b), ""), " · ".join(substitute_violations(products[a], products[b], attrs, policy))])
+    write_csv("out/survey_pairs.csv", ["a", "a_name", "b", "b_name", "n", "accept", "best", "survey", "gold", "gold_source", "blocked"], out)
+    # 설문 자체의 검증: 다수결 정답을 기존 라벨과 대조 (당근 LLM-judge 방식의 goldset 대조)
+    agree = {}
+    for r in out:
+        if r[7] and r[8] != "":
+            k = agree.setdefault(r[9], [0, 0])
+            k[0] += (r[7] == "O") == (r[8] == 1)
+            k[1] += 1
+    print(f"응답 문항 {len(qs)}개, 보기 판정 {len(out)}개 → out/survey_pairs.csv")
+    print("기존 라벨과 일치: " + ", ".join(f"{s} {a}/{n} ({a / n:.0%})" for s, (a, n) in sorted(agree.items())))
+    feats = {}
+    for (a, b), s in pairs.items():
+        if qs[a]["n"] >= cfg["min_n"]:
+            for f in survey_features(products[a], products[b], attrs, policy):
+                feats.setdefault(f, []).append(s["accept"] / qs[a]["n"])
+    write_csv("out/survey_features.csv", ["feature", "pairs", "accept_mean"],
+              sorted(([f, len(v), round(float(np.mean(v)), 3)] for f, v in feats.items()), key=lambda r: -r[2]))
+    w = load_weights()
+    # 과적합 확인: 홀수 페르소나 판정으로 간선을 만들고 짝수 페르소나 답으로 채점 (정책만 vs 정책 + 설문 판정)
+    odd = {f"P{i:02d}" for i in range(1, 31, 2)}
+    even_pairs, even_qs = load_survey({f"P{i:02d}" for i in range(2, 31, 2)})
+    for name, sv in (("정책만", {}), ("정책 + 설문 판정(홀수)", survey_labels(policy, odd))):
+        subs, *_ = build_edges(products, attrs, policy, w, gold, 5, 0.55, sv)
+        m = survey_eval(products, attrs, cats, policy, subs, even_pairs, even_qs)[1]
+        print(f"  짝수 페르소나로 채점 · {name}: precision {m['precision']} · recall {m['recall']} · top1 {m['top1']}"
+              f" · 억지 추천 {m['forced']} · 놓침 {m['missed']}")
+    subs, *_ = build_edges(products, attrs, policy, w, gold, 5, 0.55)
+    rows, m = survey_eval(products, attrs, cats, policy, subs, pairs, qs)
+    write_csv("out/survey_eval.csv", list(rows[0]), [list(r.values()) for r in rows])
+    print(f"품절 추천 vs 설문 전체 ({m['questions']}문항): precision {m['precision']} · recall {m['recall']} · top1 {m['top1']}"
+          f" · 억지 추천 {m['forced']} · 놓침 {m['missed']} → out/survey_eval.csv")
+
+
 def cmd_graph(args):
     attrs, cats, products, issues, policy, tpo = load_context()
     w = load_weights()
@@ -1061,7 +1210,7 @@ def cmd_graph(args):
               [("정책 충돌", r, a, name(a), b, name(b), s, why) for r, a, b, s, why in conflicts]
               + [("정책 차단", r, a, name(a), b, name(b), s, why) for r, a, b, s, why in sorted(blocked, key=lambda x: -x[3])])
     by = lambda key: sum(e["review"] == key for e in subs.values())
-    print(f"대체 간선 {len(subs)} (검수O {by('approved')} / 미검수 {by('unreviewed')}) · 보완 간선 {len(comps)}")
+    print(f"대체 간선 {len(subs)} (설문 {by('survey')} / 검수O {by('approved')} / 미검수 {by('unreviewed')}) · 보완 간선 {len(comps)}")
     print(f"정책 차단 {len(blocked)} · 정책 충돌 {len(conflicts)} · 콤보 {sum(map(len, combos.values()))} · 트렌드 {len(trends)}")
     print(f"→ out/graph.cypher ({len(stmts)}문), out/edges.csv, out/products_enriched.csv, out/combos.csv, out/blocked.csv, out/audit.md")
     if args.push:
@@ -1098,6 +1247,7 @@ def main():
     op.add_argument("--context", nargs="*", help="지금 상황 (예: weather=더움 time=심야)")
     op.add_argument("--all", action="store_true", help="전 상품 품절 시 추천을 out/oos_recommendations.csv 로")
     op.set_defaults(fn=cmd_oos)
+    sub.add_parser("survey").set_defaults(fn=cmd_survey)
     gp = sub.add_parser("graph")
     gp.add_argument("--k", type=int, default=5, help="상품당 대체 간선 최대 수")
     gp.add_argument("--min-score", type=float, default=0.55, help="미검수 대체 간선의 최소 모델 점수")

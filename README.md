@@ -12,17 +12,20 @@
 python cvs.py oos "코카콜라 500ml"
 코카콜라 500ml 품절
   1. 코카콜라 제로 500ml  — 같은 코카콜라 라인 · 당 없음
-  2. 칠성사이다 500ml  — 같은 탄산음료 · 카페인 더 적음 · +새콤한맛
+  2. 펩시 제로슈거 라임  — 같은 콜라 · 당 없음 · +과일
+  3. 칠성사이다 500ml  — 같은 탄산음료 · 카페인 더 적음 · +새콤한맛
 ```
 
 | 품절 상품 | 1순위 | 이유 | 사람처럼 판단한 점 |
 |---|---|---|---|
 | 코카콜라 500ml | 코카콜라 제로 500ml | 같은 코카콜라 라인 · 당 없음 | 사이다보다 같은 라인의 가벼운 버전이 먼저 |
-| 코카콜라 제로 500ml | 펩시 제로슈거 라임 | 같은 콜라 · +과일 | 일반 코카콜라는 절대 권하지 않음 (제로를 고른 이유) |
-| 불닭볶음면 큰컵 | 까르보불닭볶음면 큰컵 | 같은 불닭 라인 · 맵기 한 단계 덜 매움 · +치즈 | 브랜드 라인을 따라감 |
+| 코카콜라 제로 500ml | 펩시 제로슈거 라임 | 같은 콜라 · +과일 | 일반 코카콜라는 맨 뒤(3순위). 설문 70%가 받았지만 다이어트·당뇨 응답자는 전원 거절 |
+| 불닭볶음면 큰컵 | 불닭볶음면 (봉지) | 같은 불닭 라인 · 양이 더 적음 | 같은 라인이면 봉지 ↔ 컵도 됨 (설문 100%) |
+| 2080 여행용 칫솔치약 세트 | 2080 칫솔 | 같은 2080 라인 · 조금 더 저렴 | 세트가 없으면 낱개로 (설문 97%) |
+| 빼빼로 오리지널 | 가나 마일드 | 같은 초코 간식 | 카테고리가 달라도 같은 욕구 (설문 83%) |
 | 진라면 순한맛 | 삼양라면 | 같은 얼큰 국물 | 같은 라인이어도 더 매운 진라면 매운맛은 맨 뒤 |
 | 오모리 김치찌개라면 | 김치큰사발면 | 같은 김치 메뉴 | 같은 오모리 라인이 없으면 같은 메뉴 |
-| 신라면 (진라면도 품절, 더운 날) | 안성탕면 | 같은 얼큰 국물 · 맵기 한 단계 덜 매움 | 손님이 국물 라면을 골랐으므로 날씨로 빼지 않음 |
+| 신라면 (진라면도 품절, 더운 날) | 신라면 큰사발 | 같은 신라면 라인 · 양이 더 많음 | 손님이 국물 라면을 골랐으므로 날씨로 빼지 않음 |
 | 짜파게티 | 권할 대체 없음 | — | 비슷한 게 없으면 억지로 권하지 않음 |
 
 점원의 순서 (`ontology/policy.yaml oos`):
@@ -32,7 +35,17 @@ python cvs.py oos "코카콜라 500ml"
 4. 함께 품절인 상품, 지금 상황(TPO)에 안 맞는 상품은 뺀다. 단 손님이 고른 상품도 그 상황을 피하는 상품이면 손님 선택이 우선
 5. 강도 0.6 미만이면 "권할 대체 없음"
 
-전 상품 결과는 `out/oos_recommendations.csv` 에 있다(110개 중 84개 대체 있음, 26개 없음 — 대부분 시드 데이터에 같은 종류 상품이 하나뿐이라서).
+전 상품 결과는 `out/oos_recommendations.csv` 에 있다(110개 중 96개 대체 있음, 14개 없음 — 대부분 시드 데이터에 같은 종류 상품이 하나뿐이라서).
+
+### 사람다움 측정 — 페르소나 30명 설문
+
+실제 품절 판매 데이터가 없어서, 성향이 다른 30명(당뇨·다이어트·임산부·맵찔이·브랜드 충성·가격 민감 등)을 생성형 에이전트로 만들었다. 상품 110개가 각각 품절일 때 매대의 보기 7개 중 무엇을 대신 사겠는지 물었다 → [`docs/survey.md`](docs/survey.md).
+설문이 옳다고 가정하고 상품쌍 판정과 정책 6개(같은 라인 포장형태·당 방향, 매운 손님의 맵기, 세트 ↔ 낱개, 카테고리 묶음, 생리대 사이즈)에 반영했다.
+
+| 짝수 페르소나로 채점 (판정은 홀수 페르소나로) | precision | recall | top1 |
+|---|---|---|---|
+| 설문 전 | 0.897 | 0.577 | 0.571 |
+| 설문 반영 후 | 0.915 | 0.709 | 0.695 |
 
 ![GS 추천 온톨로지 보드](docs/board.svg)
 
@@ -261,6 +274,7 @@ python cvs.py anchor          #    대체 기준 판정 → review/anchor.csv (p
 python cvs.py impact          #    속성 영향도 → out/attribute_impact.csv
 python cvs.py triage          #    벡터 근처 후보 자동 판정 + 관리자 질문 → review/admin_queue.csv
 python cvs.py admin           #    관리자 답 반영 (상품쌍 → gold.csv, 정책 문항 → 방향 정책)
+python cvs.py survey          #    페르소나 설문 판정·검증·평가 → out/survey_*.csv (docs/survey.md)
 python cvs.py oos --all       #    전 상품 품절 대체 → out/oos_recommendations.csv
 python cvs.py graph           # 6. out/graph.cypher · out/edges.csv · out/audit.md
 python tools/board_svg.py     # 7. README 보드 갱신
@@ -303,10 +317,12 @@ MATCH (c:Combo)-[:FOR]->(:Scene {id:'rainy_commute'}), (c)-[i:INCLUDES]->(p) RET
 | `ontology/tpo.yaml` | TPO 차원 · 속성→TPO 추론 규칙 · 콤보 장면 7개 |
 | `data/products.csv` | 시드 상품 110개. 다중값은 `\|` 로 구분 |
 | `data/trends.csv` | 트렌드 신호(판매·검색). 현재 비어 있음 |
-| `review/gold.csv` · `review/queue.csv` | 검수 정답셋(source: seed · claude · review) · 검수 대기 |
+| `review/gold.csv` · `review/queue.csv` | 검수 정답셋(source: seed · claude · admin · review) · 검수 대기. 설문 판정은 review 다음으로 우선 |
 | `review/anchor.csv` | 상품별 대체 기준 판정 · 사람 결정 칸 |
 | `review/admin_queue.csv` · `review/auto_labels.csv` | 관리자 질문(정책 문항·상품쌍) · 자동 판정과 근거 |
 | `out/esci_policy_check.csv` · `out/esci_samples.csv` | ESCI 사람 라벨로 본 정책별 E/S/C/I 분포 · 샘플 |
+| `survey/personas.yaml` · `survey/questions.json` · `survey/answers/` | 설문 응답자 30명 · 품절 문항 110개 · 응답 |
+| `out/survey_pairs.csv` · `out/survey_features.csv` · `out/survey_eval.csv` | 설문 판정 · 차이 유형별 수용률 · 추천 vs 설문 평가 |
 | `out/oos_recommendations.csv` | 상품별 품절 시 대신 권할 상품 3개와 이유 |
 | `out/product_vectors.csv` · `docs/product_map.svg` | 상품 벡터 지도 좌표·가장 가까운 3개 · 지도 |
 | `out/edges.csv` · `out/graph.cypher` | 추천 간선(강도·검수 상태·앵커) · Neo4j 적재 스크립트 |
