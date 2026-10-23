@@ -1091,14 +1091,18 @@ def cmd_oos(args):
 
 # ── 페르소나 설문 ─────────────────────────────────────────────────
 
-def survey_answers(only=None):
+def survey_answers(only=None, full_only=False, folder="answers", skip_rounds=()):
     """응답을 (페르소나, 문항) 단위로 합친다. 선별 설문은 라운드마다 보기가 달라서, 응답마다 그때 본 보기(shown)를 함께 둔다.
-    합칠 때: 대신 산다·본 보기는 합집합, 가장 먼저 집음은 첫 라운드 것, skip 은 모든 라운드가 skip 일 때만."""
-    for f in sorted((ROOT / "survey/answers").glob("P*.json")):
+    합칠 때: 대신 산다·본 보기는 합집합, 가장 먼저 집음은 첫 라운드 것, skip 은 모든 라운드가 skip 일 때만.
+    full_only: 보기 일부만 물은 응답(partial)은 뺀다 — 채점용. 안 보여 준 보기를 '안 골랐다'로 세지 않기 위해.
+    folder: survey/answers(판정용) 또는 survey/validation(검증용 — 판정에 쓰지 않고 채점에만). skip_rounds: 뺄 라운드."""
+    for f in sorted((ROOT / "survey" / folder).glob("P*.json")):
         if only and f.stem not in only:
             continue
         merged = {}
         for a in json.loads(f.read_text(encoding="utf-8"))["answers"]:
+            if (full_only and a.get("partial")) or a.get("round") in skip_rounds:
+                continue
             m = merged.setdefault(a["q"], {"who": f.stem, "q": a["q"], "skip": True, "accept": set(), "shown": set(), "best": None})
             if a.get("skip"):
                 continue
@@ -1109,11 +1113,11 @@ def survey_answers(only=None):
         yield from merged.values()
 
 
-def load_survey(only=None):
+def load_survey(only=None, full_only=False, skip_rounds=()):
     """survey/answers/*.json → 상품쌍별 {n 그 보기를 본 응답자, accept 대신 산다, best 가장 먼저 집음}, 문항별 {n 응답자, none 안 산다}.
     skip(애초에 그 상품을 살 일이 없음)한 응답자는 분모에서 뺀다."""
     pairs, qs = {}, {}
-    for a in survey_answers(only):
+    for a in survey_answers(only, full_only, skip_rounds=skip_rounds):
         if a["skip"]:
             continue
         q = qs.setdefault(a["q"], {"n": 0, "none": 0})
@@ -1127,28 +1131,33 @@ def load_survey(only=None):
     return pairs, qs
 
 
-def survey_labels(policy, only=None):
+def survey_labels(policy, only=None, skip_rounds=()):
     """설문 판정 {(a, b): (라벨, 수용률)}. min_n 명 이상 본 보기 중 accept 이상 1, reject 이하 0, 그 사이(갈림)는 None."""
     if not (ROOT / "survey/answers").exists():
         return {}
     cfg, out = policy["survey"], {}
-    for (a, b), s in load_survey(only)[0].items():
+    for (a, b), s in load_survey(only, skip_rounds=skip_rounds)[0].items():
         if s["n"] >= cfg["min_n"]:
             r = s["accept"] / s["n"]
             out[(a, b)] = (1 if r >= cfg["accept"] else 0 if r <= cfg["reject"] else None, r)
     return out
 
 
-def pick_eval(products, attrs, cats, policy, subs, only=None):
+def pick_eval(products, attrs, cats, policy, subs, only=None, folder="answers", qs=None):
     """응답자 단위 채점. 화면에 1~3순위를 보여 주고, 손님이 그중 하나라도 '대신 산다'면 정답.
     선택률 = 대신 살 게 있는 응답 중 3개 안에서 고른 비율, 1순위 = 1순위를 고른 비율,
-    빈손 = 살 게 있는데 아무것도 안 보여 준 비율, 헛추천 = 보여 준 상품 중 그 응답자가 안 고른 비율(많이 보여 줄수록 커짐)."""
+    빈손 = 살 게 있는데 아무것도 안 보여 준 비율, 헛추천 = 보여 준 상품 중 그 응답자가 안 고른 비율(많이 보여 줄수록 커짐).
+    응답자가 보지 못한 상품(카탈로그를 늘린 뒤 새로 들어온 추천)은 받았을지 알 수 없어 채점에서 뺀다.
+    확인 불가 = 추천이 있는데 전부 응답자가 못 본 상품이라 채점하지 못한 응답의 비율."""
     ours = {pid: [b for b, *_ in oos_recommend(pid, products, attrs, cats, policy, subs)] for pid in products}
-    buy = pick = first = empty = shown = wasted = 0
-    for a in survey_answers(only):
-        if a["skip"] or not a["accept"]:
+    buy = pick = first = empty = shown = wasted = unknown = 0
+    for a in survey_answers(only, full_only=True, folder=folder):
+        if a["skip"] or not a["accept"] or (qs and a["q"] not in qs):
             continue
-        o, acc = ours.get(a["q"], []), a["accept"]
+        o, acc = [b for b in ours.get(a["q"], []) if b in a["shown"]], a["accept"]
+        if ours.get(a["q"]) and not o:
+            unknown += 1
+            continue
         buy += 1
         pick += bool(set(o) & acc)
         first += bool(o) and o[0] in acc
@@ -1156,7 +1165,8 @@ def pick_eval(products, attrs, cats, policy, subs, only=None):
         shown += len(o)
         wasted += sum(b not in acc for b in o)
     r = lambda x, n: round(x / n, 3) if n else 0
-    return {"선택률": r(pick, buy), "1순위": r(first, buy), "빈손": r(empty, buy), "헛추천": r(wasted, shown), "응답": buy}
+    return {"선택률": r(pick, buy), "1순위": r(first, buy), "빈손": r(empty, buy), "헛추천": r(wasted, shown), "응답": buy,
+            "확인 불가": r(unknown, buy + unknown)}
 
 
 def rank_eval(products, attrs, cats, policy, w, k=3):
@@ -1184,7 +1194,7 @@ def rank_eval(products, attrs, cats, policy, w, k=3):
     methods["인기순 (같은 개수)"] = lambda pid, opts, seed: methods["인기순"](pid, opts, seed)[:n_ours(pid, opts)]
     methods["벡터 유사도순 (같은 개수)"] = lambda pid, opts, seed: methods["벡터 유사도순"](pid, opts, seed)[:n_ours(pid, opts)]
     dcg = lambda hits: sum(h / np.log2(i + 2) for i, h in enumerate(hits))
-    rows = [a for a in survey_answers(even) if not a["skip"] and a["accept"] and a["q"] in products]
+    rows = [a for a in survey_answers(even, full_only=True) if not a["skip"] and a["accept"] and a["q"] in products]
     out = {}
     for name, pick in methods.items():
         m = {"P": [], "P보인": [], "R": [], "NDCG": [], "1순위": [], "선택률": [], "보인 수": []}
@@ -1212,7 +1222,8 @@ def survey_eval(products, attrs, cats, policy, subs, pairs, qs):
     for pid, q in qs.items():
         if q["n"] < cfg["min_n"]:
             continue
-        ours = [b for b, *_ in oos_recommend(pid, products, attrs, cats, policy, subs)]
+        seen = {b for (a, b) in pairs if a == pid}
+        ours = [b for b, *_ in oos_recommend(pid, products, attrs, cats, policy, subs) if b in seen]  # 응답자가 본 보기만 채점
         liked = {b for (a, b), s in pairs.items() if a == pid and s["n"] >= cfg["min_n"] and s["accept"] / s["n"] >= cfg["accept"]}
         bests = sorted(((s["best"], b) for (a, b), s in pairs.items() if a == pid and s["best"]), reverse=True)
         hit = len(set(ours) & liked)
@@ -1292,16 +1303,16 @@ def predict_accept(model, feats):
     return float(1 / (1 + np.exp(-(x @ model["w"][:-1] + model["w"][-1]))))
 
 
-def distill_training_rows(products, attrs, policy, w, only=None, skip_q=()):
-    pairs, _ = load_survey(only)
+def distill_training_rows(products, attrs, policy, w, only=None, skip_q=(), skip_rounds=()):
+    pairs, _ = load_survey(only, skip_rounds=skip_rounds)
     return [(pair_features(products[a], products[b], attrs, policy, w), s["accept"] / s["n"], s["n"], (a, b))
             for (a, b), s in sorted(pairs.items())
             if s["n"] >= policy["survey"]["min_n"] and a in products and b in products and a not in skip_q]
 
 
-def distill_predictions(products, attrs, policy, w, survey_only=None, skip_q=()):
+def distill_predictions(products, attrs, policy, w, survey_only=None, skip_q=(), skip_rounds=()):
     """설문으로 학습한 모델이 같은 type 상품쌍 전부의 수용률을 예측. {(a, b): 확률}"""
-    rows = distill_training_rows(products, attrs, policy, w, survey_only, skip_q)
+    rows = distill_training_rows(products, attrs, policy, w, survey_only, skip_q, skip_rounds)
     if len(rows) < 30:
         return {}
     model = fit_accept_model([r[:3] for r in rows])
@@ -1334,7 +1345,7 @@ def cmd_distill(args):
             pred = distill_predictions(products, attrs, policy, w, skip_q=hide) if use else {}
             subs, *_ = build_edges(products, attrs, policy, w, {}, 5, 0.55, {pr: v for pr, v in labels.items() if pr[0] not in hide}, pred)
             ours = {p: [b for b, *_ in oos_recommend(p, products, attrs, cats, policy, subs)] for p in hide}
-            for a in survey_answers():
+            for a in survey_answers(full_only=True):
                 if a["skip"] or a["q"] not in hide or not a["accept"]:
                     continue
                 o = ours[a["q"]]
@@ -1347,6 +1358,17 @@ def cmd_distill(args):
         m = {"선택률": tot["pick"] / tot["buy"], "1순위": tot["first"] / tot["buy"], "빈손": tot["empty"] / tot["buy"], "보인 것 중 맞음": tot["hit"] / tot["shown"]}
         out.append([name, *(round(v, 3) for v in m.values())])
         print(f"새 상품 가정 · {name}: " + " · ".join(f"{k} {v:.3f}" for k, v in m.items()))
+    vq = ROOT / "survey" / "validation_questions.json"
+    if vq.exists():  # ③ 새 상품 검증 설문: 판정에 안 쓴 별도 응답으로 채점 — 모델·선별 설문 라운드를 빼고 넣어 비교
+        V, R2 = {q["q"] for q in json.loads(vq.read_text(encoding="utf-8"))}, ("2026-10-23-증류선별",)
+        gold = load_gold()
+        for name, sv, pr in (("검증 · 정책+벡터만", survey_labels(policy, skip_rounds=R2), {}),
+                             ("검증 · 증류 모델만", survey_labels(policy, skip_rounds=R2), distill_predictions(products, attrs, policy, w, skip_rounds=R2)),
+                             ("검증 · 증류 모델 + 선별 설문", survey_labels(policy), distill_predictions(products, attrs, policy, w))):
+            subs, *_ = build_edges(products, attrs, policy, w, gold, 5, 0.55, sv, pr)
+            m = pick_eval(products, attrs, cats, policy, subs, folder="validation", qs=V)
+            out.append([name, *(m.get(k) for k in ("선택률", "1순위", "빈손", "헛추천"))])
+            print(f"{name}: " + " · ".join(f"{k} {v}" for k, v in m.items()))
     write_csv("out/distill_eval.csv", ["method", "pick", "first", "empty", "precision_shown"], out)
     write_csv("out/distill_coef.csv", ["feature", "coef"], [[n, round(float(v), 3)] for n, v in coef])
 
@@ -1446,16 +1468,16 @@ def cmd_survey(args):
     w = load_weights()
     # 과적합 확인: 홀수 페르소나 판정으로 간선을 만들고 짝수 페르소나 답으로 채점 (정책만 vs 정책 + 설문 판정)
     odd, even = ({f"P{i:02d}" for i in range(s, 31, 2)} for s in (1, 2))
-    even_pairs, even_qs = load_survey(even)
+    even_pairs, even_qs = load_survey(even, full_only=True)
     for name, sv, pr in (("정책만", {}, {}),
                          ("정책 + 설문 판정(홀수)", survey_labels(policy, odd), distill_predictions(products, attrs, policy, w, odd))):
         subs, *_ = build_edges(products, attrs, policy, w, gold, 5, 0.55, sv, pr)
         m = survey_eval(products, attrs, cats, policy, subs, even_pairs, even_qs)[1]
         k = pick_eval(products, attrs, cats, policy, subs, even)
         print(f"  짝수 페르소나로 채점 · {name}: 3개 중 선택률 {k['선택률']} · 1순위 {k['1순위']} · 빈손 {k['빈손']}"
-              f" · 헛추천 {k['헛추천']} | 과반 기준 precision {m['precision']} · recall {m['recall']} · top1 {m['top1']}")
+              f" · 헛추천 {k['헛추천']} · 확인 불가 {k['확인 불가']} | 과반 기준 precision {m['precision']} · recall {m['recall']} · top1 {m['top1']}")
     subs, *_ = build_edges(products, attrs, policy, w, gold, 5, 0.55)
-    rows, m = survey_eval(products, attrs, cats, policy, subs, pairs, qs)
+    rows, m = survey_eval(products, attrs, cats, policy, subs, *load_survey(full_only=True))
     write_csv("out/survey_eval.csv", list(rows[0]), [list(r.values()) for r in rows])
     print(f"품절 추천 vs 설문 전체 ({m['questions']}문항): precision {m['precision']} · recall {m['recall']} · top1 {m['top1']}"
           f" · 억지 추천 {m['forced']} · 놓침 {m['missed']} → out/survey_eval.csv")

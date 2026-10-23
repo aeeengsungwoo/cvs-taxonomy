@@ -1,0 +1,219 @@
+<title>GS 품절 대체 그래프</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+/* 한 화면 그래프: 캔버스가 전체, 위에 필터 줄, 오른쪽(폰은 아래)에 선택한 상품 패널. 옵시디언처럼 어두운 한 가지 화면 */
+:root {
+  --bg: #16171d; --panel: #1f2129; --line: #2e313c; --fg: #e6e7ec; --soft: #9a9fae;
+  --snack: #f0a63c; --ramen: #ef5f56; --beverage: #4ea8f2; --household: #79c97a;
+  --sans: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans); overflow: hidden; }
+canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+canvas.drag { cursor: grabbing; }
+header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center;
+  padding-block: calc(12px + env(safe-area-inset-top, 0px)) 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: linear-gradient(var(--bg) 55%, transparent); pointer-events: none;
+}
+header > * { pointer-events: auto; }
+h1 { margin: 0 8px 0 0; font-size: 17px; font-weight: 700; text-wrap: balance; }
+h1 small { color: var(--soft); font-weight: 400; font-size: 13px; margin-left: 6px; font-variant-numeric: tabular-nums; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  font: inherit; font-size: 13px; color: var(--fg); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 999px; padding: 3px 11px 3px 9px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center;
+}
+.chip i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+.chip[aria-pressed="false"] { color: var(--soft); opacity: .55; }
+.chip:focus-visible, input:focus-visible, button:focus-visible { outline: 2px solid var(--beverage); outline-offset: 2px; }
+input {
+  font: inherit; font-size: 13px; color: var(--fg); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 4px 10px; width: 150px;
+}
+aside {
+  position: fixed; z-index: 2; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  width: 270px; max-width: calc(100% - 32px); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+}
+aside h2 { margin: 0; font-size: 16px; }
+aside .meta { color: var(--soft); font-size: 12.5px; margin-top: 2px; }
+aside ol { margin: 10px 0 0; padding-left: 20px; }
+aside li { margin: 2px 0; }
+aside li:nth-child(3) { color: var(--soft); }
+aside p { margin: 10px 0 0; color: var(--soft); font-size: 12.5px; }
+.tip { position: fixed; z-index: 1; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); color: var(--soft); font-size: 12px; pointer-events: none; }
+@media (max-width: 640px) { aside { left: max(16px, env(safe-area-inset-left, 0px)); width: auto; } .tip { display: none; } }
+</style>
+
+<canvas id="cv"></canvas>
+<header>
+  <h1>품절 대체 그래프<small id="count"></small></h1>
+  <div class="chips" id="chips"></div>
+  <input id="q" type="search" placeholder="상품 찾기" aria-label="상품 찾기" list="names">
+  <datalist id="names"></datalist>
+</header>
+<aside id="panel"></aside>
+<div class="tip">드래그 = 회전 · 휠 = 확대 · 점 클릭 = 품절 시 추천</div>
+
+<script>
+const DATA = /*DATA*/null;
+const TYPES = { snack: "과자", ramen: "라면", beverage: "음료", household: "생필품" };
+const css = getComputedStyle(document.documentElement);
+const COLOR = Object.fromEntries(Object.keys(TYPES).map(t => [t, css.getPropertyValue("--" + t).trim()]));
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// ── 데이터 ─────────────────────────────────────────────
+const nodes = DATA.nodes.map((n, k) => ({ ...n, k, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, nb: new Set() }));
+const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+const links = DATA.links.map(l => ({ a: byId[l.s], b: byId[l.t], w: l.w }));
+links.forEach(l => { l.a.nb.add(l.b); l.b.nb.add(l.a); });
+nodes.forEach(n => n.r = 2.5 + Math.sqrt(n.nb.size) * 1.2);
+
+// ── 3D 힘 배치: 종류마다 정사면체 꼭짓점으로 당기고, 서로 밀고, 간선은 스프링 ──
+const ANCHOR = { snack: [1, 1, 1], ramen: [-1, -1, 1], beverage: [-1, 1, -1], household: [1, -1, -1] };
+let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5;
+nodes.forEach(n => { const a = ANCHOR[n.type]; n.x = a[0] * 120 + rnd() * 80; n.y = a[1] * 120 + rnd() * 80; n.z = a[2] * 120 + rnd() * 80; });
+function tick(alpha) {
+  for (let i = 0; i < nodes.length; i++) {
+    const p = nodes[i];
+    for (let j = i + 1; j < nodes.length; j++) {
+      const q = nodes[j];
+      let dx = p.x - q.x, dy = p.y - q.y, dz = p.z - q.z, d2 = dx * dx + dy * dy + dz * dz + 0.01;
+      if (d2 > 160000) continue;
+      const f = (p.type === q.type ? 900 : 2200) * alpha / d2;
+      p.vx += dx * f; p.vy += dy * f; p.vz += dz * f; q.vx -= dx * f; q.vy -= dy * f; q.vz -= dz * f;
+    }
+  }
+  for (const l of links) {
+    const dx = l.b.x - l.a.x, dy = l.b.y - l.a.y, dz = l.b.z - l.a.z, d = Math.hypot(dx, dy, dz) || 1;
+    const f = (d - (34 - 14 * l.w)) / d * 0.06 * alpha * (0.4 + l.w);
+    l.a.vx += dx * f; l.a.vy += dy * f; l.a.vz += dz * f; l.b.vx -= dx * f; l.b.vy -= dy * f; l.b.vz -= dz * f;
+  }
+  for (const n of nodes) {
+    const a = ANCHOR[n.type];
+    n.vx += (a[0] * 210 - n.x) * 0.012 * alpha; n.vy += (a[1] * 210 - n.y) * 0.012 * alpha; n.vz += (a[2] * 210 - n.z) * 0.012 * alpha;
+    n.vx *= 0.6; n.vy *= 0.6; n.vz *= 0.6; n.x += n.vx; n.y += n.vy; n.z += n.vz;
+  }
+}
+for (let i = 0; i < 320; i++) tick(1 - i / 400);
+{ const c = ["x", "y", "z"].map(k => nodes.reduce((t, n) => t + n[k], 0) / nodes.length);  // 가운데로 옮기고 반지름 재기
+  nodes.forEach(n => { n.x -= c[0]; n.y -= c[1]; n.z -= c[2]; }); }
+const R = nodes.map(n => Math.hypot(n.x, n.y, n.z)).sort((a, b) => a - b)[Math.floor(nodes.length * 0.9)];  // 튀는 몇 개 말고 대부분이 화면에 차게
+
+// ── 카메라 ─────────────────────────────────────────────
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+let W, H, dpr, yaw = 0.6, pitch = -0.35, zoom = 1, auto = !reduced, hover = null, sel = null;
+const shown = Object.fromEntries(Object.keys(TYPES).map(t => [t, true]));
+function resize() {
+  dpr = devicePixelRatio || 1; W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener("resize", resize); resize();
+function project(n) {
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const x1 = n.x * cy - n.z * sy, z1 = n.x * sy + n.z * cy;
+  const y2 = n.y * cp - z1 * sp, z2 = n.y * sp + z1 * cp;
+  const cam = R * 3, s = cam / (cam + z2) * zoom * Math.min(W, H) * 0.44 / R;  // 장면 반지름 R에 맞춰 화면에 꽉 차게
+  n.sx = W / 2 + x1 * s; n.sy = H / 2 + 24 + y2 * s; n.s = s; n.depth = z2;
+}
+
+// ── 그리기 ─────────────────────────────────────────────
+function focusSet() {
+  const f = sel || hover;
+  return f ? new Set([f, ...f.nb]) : null;
+}
+function draw() {
+  if (auto) yaw += 0.0016;
+  ctx.clearRect(0, 0, W, H);
+  const vis = nodes.filter(n => shown[n.type]);
+  vis.forEach(project);
+  const fs = focusSet();
+  for (const l of links) {
+    if (!shown[l.a.type] || !shown[l.b.type]) continue;
+    const on = fs && fs.has(l.a) && fs.has(l.b) && (l.a === (sel || hover) || l.b === (sel || hover));
+    const fade = Math.min(1, Math.max(0.25, (l.a.s + l.b.s) / 2));
+    ctx.strokeStyle = on ? COLOR[l.a.type] : `rgba(170,176,196,${(fs ? 0.04 : 0.07 + 0.2 * l.w) * fade})`;
+    ctx.lineWidth = on ? 1.6 : 0.8;
+    ctx.beginPath(); ctx.moveTo(l.a.sx, l.a.sy); ctx.lineTo(l.b.sx, l.b.sy); ctx.stroke();
+  }
+  vis.sort((p, q) => q.depth - p.depth);
+  for (const n of vis) {
+    const dim = fs && !fs.has(n), r = n.r * n.s;
+    ctx.globalAlpha = dim ? 0.18 : Math.min(1, 0.45 + n.s * 0.5);
+    ctx.fillStyle = COLOR[n.type];
+    ctx.beginPath(); ctx.arc(n.sx, n.sy, Math.max(1.5, Math.min(r, 14)), 0, 7); ctx.fill();
+    if (n === sel || n === hover) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); }
+    // 이름: 확대할수록, 가까울수록 진하게. 고른 상품과 이웃은 항상
+    const la = fs ? (fs.has(n) ? 1 : 0) : Math.max(0, Math.min(1, (n.s * 0.9 / zoom + zoom - 1.25) * 2));
+    if (la > 0.02) {
+      ctx.globalAlpha = la;
+      ctx.fillStyle = "#e6e7ec";
+      ctx.font = `${n === (sel || hover) ? 700 : 400} ${Math.round(Math.max(11, Math.min(17, 12 * n.s)))}px ${css.getPropertyValue("--sans")}`;
+      ctx.fillText(n.name, n.sx + r + 4, n.sy + 4);
+    }
+  }
+  ctx.globalAlpha = 1;
+  requestAnimationFrame(draw);
+}
+
+// ── 패널·필터 ──────────────────────────────────────────
+const panel = document.getElementById("panel");
+function showPanel(n) {
+  if (!n) {
+    panel.innerHTML = `<h2>점을 눌러 보세요</h2><div class="meta">상품 ${nodes.length}개 · 대체 간선 ${links.length}개</div>
+      <p>점 크기 = 대체로 이어진 상품 수. 가까이 모인 상품끼리 서로 대신할 수 있습니다.</p>`;
+    return;
+  }
+  const recs = n.recs.length ? `<ol>${n.recs.map(r => `<li>${r}</li>`).join("")}</ol>` : `<p>권할 대체 없음</p>`;
+  panel.innerHTML = `<h2>${n.name}</h2><div class="meta">${n.typeKo} · ${n.cat} · 이어진 상품 ${n.nb.size}개</div>
+    <p style="color:var(--fg);margin-top:12px">품절이면 이 순서로 권합니다</p>${recs}`;
+}
+showPanel(null);
+document.getElementById("count").textContent = `상품 ${nodes.length} · 간선 ${links.length}`;
+const chips = document.getElementById("chips");
+for (const [t, ko] of Object.entries(TYPES)) {
+  const b = document.createElement("button");
+  b.className = "chip"; b.style.setProperty("--c", COLOR[t]); b.setAttribute("aria-pressed", "true");
+  b.innerHTML = `<i></i>${ko} ${nodes.filter(n => n.type === t).length}`;
+  b.onclick = () => { shown[t] = !shown[t]; b.setAttribute("aria-pressed", shown[t]); if (sel && !shown[sel.type]) { sel = null; showPanel(null); } };
+  chips.append(b);
+}
+document.getElementById("names").innerHTML = nodes.map(n => `<option value="${n.name}">`).join("");
+document.getElementById("q").addEventListener("change", e => {
+  const n = nodes.find(n => n.name === e.target.value) || nodes.find(n => n.name.includes(e.target.value.trim()));
+  if (n && e.target.value.trim()) { shown[n.type] = true; sel = n; auto = false; zoom = Math.max(zoom, 1.6); showPanel(n); }
+});
+
+// ── 마우스·터치 ────────────────────────────────────────
+function pick(x, y) {
+  let best = null, bd = 14;
+  for (const n of nodes) {
+    if (!shown[n.type] || n.sx === undefined) continue;
+    const d = Math.hypot(n.sx - x, n.sy - y) - n.r * n.s;
+    if (d < bd) { bd = d; best = n; }
+  }
+  return best;
+}
+let down = null, moved = false;
+cv.addEventListener("pointerdown", e => { down = { x: e.clientX, y: e.clientY, yaw, pitch }; moved = false; cv.setPointerCapture(e.pointerId); cv.classList.add("drag"); });
+cv.addEventListener("pointermove", e => {
+  if (down) {
+    const dx = e.clientX - down.x, dy = e.clientY - down.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) { moved = true; auto = false; }
+    yaw = down.yaw + dx * 0.006; pitch = Math.max(-1.4, Math.min(1.4, down.pitch + dy * 0.006));
+  } else hover = pick(e.clientX, e.clientY);
+});
+cv.addEventListener("pointerup", e => {
+  cv.classList.remove("drag");
+  if (down && !moved) { sel = pick(e.clientX, e.clientY); showPanel(sel); }
+  down = null;
+});
+cv.addEventListener("pointerleave", () => hover = null);
+cv.addEventListener("wheel", e => { e.preventDefault(); zoom = Math.max(0.5, Math.min(4, zoom * Math.exp(-e.deltaY * 0.0012))); }, { passive: false });
+addEventListener("keydown", e => { if (e.key === "Escape") { sel = null; showPanel(null); } });
+requestAnimationFrame(draw);
+</script>

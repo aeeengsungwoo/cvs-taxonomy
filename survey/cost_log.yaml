@@ -1,0 +1,20 @@
+# 판정 비용 실측 기록. tokens = 그 작업에 쓴 서브에이전트 토큰 합계(입력 + 출력, 하네스가 보고한 값).
+# 첫 설문·짜장 재설문은 당시 기록한 근삿값이다. tools/token_chart.py 가 이 파일로 docs/token_cost.svg 를 그린다.
+runs:
+  - {key: first, date: 2026-10, name: 첫 설문 (전수), products: 110, responses: 3300, tokens: 3000000, approx: true, note: 페르소나 30명 × 110문항}
+  - {key: jjajang, date: 2026-10, name: 짜장라면 재설문 (전수), products_added: 5, responses: 390, tokens: 1660000, approx: true, note: 13문항 × 30명}
+  - {key: round1, date: 2026-10-23, name: 선별 설문 1차, products_added: 3, responses: 80, tokens: 165890, note: 비빔면 2 · AAA 1, 에이전트 3개}
+  - {key: catalog, date: 2026-10-23, name: 카탈로그 속성 태깅, products_added: 120, tokens: 510933, note: 에이전트 7개 병렬. 중간에 멈춘 1개는 제외}
+  - {key: round2, date: 2026-10-23, name: 증류 모델 + 선별 설문 2차, products_added: 120, responses: 790, tokens: 578419, note: 모델이 확신 없는 보기만, 에이전트 8개}
+  - {key: validation, date: 2026-10-23, name: 새 상품 검증 설문 (판정에 안 씀), products: 24, responses: 240, tokens: 264912, note: 새 상품 24개 보기 7개 전부, 채점 전용}
+
+# 상품 118 → 238개 확장을 세 방식으로 판정할 때의 규모 (tools/survey_queue.py 계산)
+scale_up:
+  before: 118
+  after: 238
+  added: 120
+  personas: 30
+  pairs_before: 3684      # 같은 종류끼리 방향 있는 상품쌍
+  pairs_after: 14944
+  full_responses: 7140    # 전수: 보기가 바뀐 238문항 × 30명
+  selective_responses: 2060  # 선별(모델 없음): 206문항 · 보기 960개
