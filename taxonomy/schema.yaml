@@ -182,6 +182,7 @@ attributes:
       춘장: {definition: 춘장 소스.}
       고추장: {definition: 고추장·고춧가루 양념 소스.}
       참깨: {definition: 참깨·계란 풍미 계열.}
+      김치: {definition: 김치·김치찌개 계열.}
 
   - id: noodle
     name: 면
@@ -372,3 +373,22 @@ attributes:
       중형: {definition: 생리대 중형.}
       대형: {definition: 생리대 대형.}
       오버나이트: {definition: 생리대 오버나이트.}
+
+  # ── 앵커 정책 전용 (점수 가중치 0: 유사도에는 안 쓰고 ontology/policy.yaml anchor 에서만 쓴다) ──
+  - id: line
+    name: 브랜드 라인
+    depth: 4
+    type: open
+    weight: 0
+    optional: true
+    applies_to: [snack, ramen, beverage, household]
+    definition: 제품명 앞에 붙어 맛·형태 변형을 묶는 라인 이름(불닭, 신라면, 칠성사이다, 듀라셀). 제조사보다 좁고 상품보다 넓다.
+
+  - id: menu
+    name: 대표 메뉴
+    depth: 4
+    type: open
+    weight: 0
+    optional: true
+    applies_to: [snack, ramen, beverage, household]
+    definition: 손님이 이름에서 떠올리는 음식·맛 한 가지(김치, 짬뽕, 까르보, 짜장). 맛계열보다 구체적이다.

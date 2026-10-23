@@ -18,15 +18,15 @@ identity:
 substitute:
   definition: 같은 욕구를 채우는 다른 상품. 같은 type, 같은 목적, 같은 규격대여야 한다.
   snack: {category_level: 1, share: [occasion]}      # 대분류 같고 구매상황 겹침
-  ramen: {same: [style], share: [occasion]}          # 조리형태 같음 (국물 ↔ 짜장 대체 금지)
+  ramen: {same: [style, container], share: [occasion]}  # 조리형태·포장형태 같음 (국물↔짜장, 봉지↔컵 대체 금지 — 2차 검수에서 추가)
   beverage: {category_level: 2, share: [occasion]}   # 탄산은 탄산끼리, 커피는 커피끼리
   household: {category_level: 3, same: [spec]}       # 같은 품목 + 규격 일치 (AA ↔ AAA 금지)
   # 규격 정책: 순서 속성의 허용 최대 단계 차이.
   #   가격대·용량 1단계 — 1,500원 과자 대신 5,000원 박스를 권하지 않는다
-  #   맵기 2단계 — 불닭 대신 사리곰탕을 권하지 않는다
+  #   맵기 1단계 — 신라면(중) 대신 사리곰탕(없음)을 권하지 않는다 (3차 검수에서 2→1)
   #   당 2단계 — 제로 찾는 손님에게 일반 콜라를 권하지 않는다
   #   알코올 0단계 — 맥주 대신 소주를 권하지 않는다
-  max_gap: {price_band: 1, size: 1, spicy: 2, sugar: 2, abv: 0}
+  max_gap: {price_band: 1, size: 1, spicy: 1, sugar: 2, abv: 0}
 
 # 상품간 정책 2 — 보완재: 같이 사면 가치가 커지는가. type을 넘나들 수 있다.
 complement:
@@ -113,3 +113,28 @@ combo:
 trend:
   definition: 특정 기간에 판매·검색이 평소보다 뜬 상품. TPO 적합성·정책을 통과해야 추천에 쓰인다.
   min_score: 0.3
+
+# 상품간 정책 4 — 앵커(대체 기준): 대체재를 찾을 때 손님이 '놓지 않으려는 것'.
+# 예) 불닭볶음면 큰컵 → 라인(불닭)을 놓지 않음 → 까르보불닭 큰컵이 1순위
+#     오모리 김치찌개라면 → 브랜드(오모리)인지 메뉴(김치)인지 데이터만으로 못 정함 → 사람이 정한다
+# 앵커는 하드 정책(아이덴티티·규격·제한) 안에서만 순위를 올린다. 정책을 뚫지 못한다(코카콜라 → 코카콜라 제로는 여전히 금지).
+anchor:
+  definition: 대체재 순위의 기준. line(브랜드 라인) / menu(대표 메뉴) / category(기본 — 속성 유사도만) 중 하나를 상품마다 정한다.
+  boost: 0.25   # 앵커 값이 같은 후보의 유사도에 더하는 값(최대 1.0)
+  # 자동 판정 규칙 (cvs.py anchor 가 위에서부터 적용, 결과는 review/anchor.csv)
+  #   후보 = 같은 type 이면서 하드 정책을 통과한 상품
+  #   1. line·menu 둘 다 있으면                                       → pending (사람이 정함, 후보 목록을 같이 보여줌)
+  #   2. line 이 같은 후보가 있으면                                    → line (auto)
+  #   3. menu 가 같은 후보가 있으면                                    → menu (auto)
+  #   4. 그 외                                                        → category (auto)
+  # 사람 결정: review/anchor.csv 의 decision 칸에 line / menu / category 를 쓰면 자동 판정보다 우선.
+  # pending 이 남아 있는 동안은 category 로 동작한다(앵커 가산 없음).
+
+# 속성 영향도 판정 기준 (cvs.py impact → out/attribute_impact.csv)
+# 속성 하나를 빼고(가중치 0) 다시 평가해서 성능 변화(Δ종합)와 추천 목록 변화(상위 5 변동률)를 잰다.
+attribute_impact:
+  keep_delta: 0.005      # 빼면 종합 점수가 이만큼 이상 떨어지면 → 유지(점수 기여)
+  noise_delta: -0.005    # 빼면 종합 점수가 이만큼 이상 오르면 → 제거 권장(노이즈)
+  churn_hold: 0.10       # 성능 변화는 없는데 상위 5 추천이 10% 이상 바뀌면 → 보류(정답셋이 못 재는 영향, 검수 필요)
+  missing_warn: 0.30     # 결측률 30% 이상 → 데이터 보강 필요
+  # 판정 순서: 정책·TPO에서 쓰임 → 유지(구조) / 현재 뎁스 밖 → 제거 후보(미사용) / 위 수치 규칙
