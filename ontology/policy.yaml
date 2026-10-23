@@ -195,3 +195,6 @@ oos:
 # split: 설문이 갈린 쌍(reject < 수용 < accept)의 처리. ai = 옛 AI 라벨 유지, weak = 수용률을 약한 강도로, none = AI 라벨을 버리고 벡터 점수(미검수 할인)로
 #   홀드아웃(짝수 채점) 헛추천 ai 0.155 · weak 0.175 · none 0.144, 선택률은 셋 다 0.94 → none
 survey: {min_n: 5, accept: 0.5, reject: 0.2, split: none}
+# 증류 모델(cvs.py distill): 설문 판정으로 '대신 살 확률'을 학습해, 설문 없는 쌍을 판정한다. 확신 구간 밖(reject < p < accept)은 판정하지 않고 선별 설문으로 보낸다.
+#   새 상품 가정(상품 3겹, AI 라벨 없음) 선택률 0.831 → 0.870 · 1순위 0.766 → 0.808 · 빈손 0.132 → 0.101 (기준 0.55/0.3이 가장 좋음)
+distill: {enabled: true, accept: 0.55, reject: 0.3, override_ai: true}

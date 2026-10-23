@@ -3214,6 +3214,7 @@ MATCH (a:Product {id: "R01"}), (b:Product {id: "R04"}) CREATE (a)-[:SUBSTITUTE {
 MATCH (a:Product {id: "R01"}), (b:Product {id: "R05"}) CREATE (a)-[:SUBSTITUTE {strength: 0.763, model_score: 0.953, review: "unreviewed", anchor: "", depth: 2}]->(b);
 MATCH (a:Product {id: "R01"}), (b:Product {id: "R06"}) CREATE (a)-[:SUBSTITUTE {strength: 0.763, model_score: 0.953, review: "unreviewed", anchor: "", depth: 2}]->(b);
 MATCH (a:Product {id: "R01"}), (b:Product {id: "R07"}) CREATE (a)-[:SUBSTITUTE {strength: 0.896, model_score: 0.831, review: "survey", anchor: "", depth: 2}]->(b);
+MATCH (a:Product {id: "R01"}), (b:Product {id: "R08"}) CREATE (a)-[:SUBSTITUTE {strength: 0.785, model_score: 0.814, review: "model", anchor: "", depth: 2}]->(b);
 MATCH (a:Product {id: "R01"}), (b:Product {id: "R09"}) CREATE (a)-[:SUBSTITUTE {strength: 0.664, model_score: 0.831, review: "unreviewed", anchor: "", depth: 2}]->(b);
 MATCH (a:Product {id: "R02"}), (b:Product {id: "R01"}) CREATE (a)-[:SUBSTITUTE {strength: 0.8, model_score: 1.0, review: "unreviewed", anchor: "line", depth: 2}]->(b);
 MATCH (a:Product {id: "R02"}), (b:Product {id: "R16"}) CREATE (a)-[:SUBSTITUTE {strength: 0.958, model_score: 1.0, review: "survey", anchor: "", depth: 2}]->(b);
@@ -3320,6 +3321,7 @@ MATCH (a:Product {id: "S02"}), (b:Product {id: "S01"}) CREATE (a)-[:SUBSTITUTE {
 MATCH (a:Product {id: "S02"}), (b:Product {id: "S04"}) CREATE (a)-[:SUBSTITUTE {strength: 0.5, model_score: 0.625, review: "unreviewed", anchor: "", depth: 3}]->(b);
 MATCH (a:Product {id: "S02"}), (b:Product {id: "S05"}) CREATE (a)-[:SUBSTITUTE {strength: 0.875, model_score: 0.74, review: "survey", anchor: "", depth: 3}]->(b);
 MATCH (a:Product {id: "S02"}), (b:Product {id: "S06"}) CREATE (a)-[:SUBSTITUTE {strength: 0.9, model_score: 0.703, review: "survey", anchor: "", depth: 3}]->(b);
+MATCH (a:Product {id: "S02"}), (b:Product {id: "S07"}) CREATE (a)-[:SUBSTITUTE {strength: 0.78, model_score: 0.694, review: "model", anchor: "", depth: 3}]->(b);
 MATCH (a:Product {id: "S02"}), (b:Product {id: "S08"}) CREATE (a)-[:SUBSTITUTE {strength: 0.786, model_score: 0.831, review: "survey", anchor: "", depth: 3}]->(b);
 MATCH (a:Product {id: "S02"}), (b:Product {id: "S10"}) CREATE (a)-[:SUBSTITUTE {strength: 0.588, model_score: 0.735, review: "unreviewed", anchor: "", depth: 3}]->(b);
 MATCH (a:Product {id: "S02"}), (b:Product {id: "S19"}) CREATE (a)-[:SUBSTITUTE {strength: 0.828, model_score: 0.657, review: "approved", anchor: "", depth: 3}]->(b);
