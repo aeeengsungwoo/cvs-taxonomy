@@ -1107,6 +1107,29 @@ def survey_labels(policy, only=None):
     return out
 
 
+def pick_eval(products, attrs, cats, policy, subs, only=None):
+    """응답자 단위 채점. 화면에 1~3순위를 보여 주고, 손님이 그중 하나라도 '대신 산다'면 정답.
+    선택률 = 대신 살 게 있는 응답 중 3개 안에서 고른 비율, 1순위 = 1순위를 고른 비율,
+    빈손 = 살 게 있는데 아무것도 안 보여 준 비율, 헛추천 = 보여 준 상품 중 그 응답자가 안 고른 비율(많이 보여 줄수록 커짐)."""
+    ours = {pid: [b for b, *_ in oos_recommend(pid, products, attrs, cats, policy, subs)] for pid in products}
+    buy = pick = first = empty = shown = wasted = 0
+    for f in sorted((ROOT / "survey/answers").glob("P*.json")):
+        if only and f.stem not in only:
+            continue
+        for a in json.loads(f.read_text(encoding="utf-8"))["answers"]:
+            if a.get("skip") or not a["accept"]:
+                continue
+            o, acc = ours.get(a["q"], []), set(a["accept"])
+            buy += 1
+            pick += bool(set(o) & acc)
+            first += bool(o) and o[0] in acc
+            empty += not o
+            shown += len(o)
+            wasted += sum(b not in acc for b in o)
+    r = lambda x, n: round(x / n, 3) if n else 0
+    return {"선택률": r(pick, buy), "1순위": r(first, buy), "빈손": r(empty, buy), "헛추천": r(wasted, shown), "응답": buy}
+
+
 def survey_eval(products, attrs, cats, policy, subs, pairs, qs):
     """품절 추천이 설문 다수와 얼마나 맞나. 추천은 여러 개라 precision/recall 로 잰다.
     precision = 권한 것 중 응답자 과반이 '대신 산다'인 비율, recall = 과반이 받아들인 보기 중 권한 비율,
@@ -1182,13 +1205,14 @@ def cmd_survey(args):
               sorted(([f, len(v), round(float(np.mean(v)), 3)] for f, v in feats.items()), key=lambda r: -r[2]))
     w = load_weights()
     # 과적합 확인: 홀수 페르소나 판정으로 간선을 만들고 짝수 페르소나 답으로 채점 (정책만 vs 정책 + 설문 판정)
-    odd = {f"P{i:02d}" for i in range(1, 31, 2)}
-    even_pairs, even_qs = load_survey({f"P{i:02d}" for i in range(2, 31, 2)})
+    odd, even = ({f"P{i:02d}" for i in range(s, 31, 2)} for s in (1, 2))
+    even_pairs, even_qs = load_survey(even)
     for name, sv in (("정책만", {}), ("정책 + 설문 판정(홀수)", survey_labels(policy, odd))):
         subs, *_ = build_edges(products, attrs, policy, w, gold, 5, 0.55, sv)
         m = survey_eval(products, attrs, cats, policy, subs, even_pairs, even_qs)[1]
-        print(f"  짝수 페르소나로 채점 · {name}: precision {m['precision']} · recall {m['recall']} · top1 {m['top1']}"
-              f" · 억지 추천 {m['forced']} · 놓침 {m['missed']}")
+        k = pick_eval(products, attrs, cats, policy, subs, even)
+        print(f"  짝수 페르소나로 채점 · {name}: 3개 중 선택률 {k['선택률']} · 1순위 {k['1순위']} · 빈손 {k['빈손']}"
+              f" · 헛추천 {k['헛추천']} | 과반 기준 precision {m['precision']} · recall {m['recall']} · top1 {m['top1']}")
     subs, *_ = build_edges(products, attrs, policy, w, gold, 5, 0.55)
     rows, m = survey_eval(products, attrs, cats, policy, subs, pairs, qs)
     write_csv("out/survey_eval.csv", list(rows[0]), [list(r.values()) for r in rows])
