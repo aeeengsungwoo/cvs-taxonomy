@@ -54,7 +54,9 @@ def plan(use_model=True, write=True):
         if pid in qs:
             top3 = {b for b, *_ in cvs.oos_recommend(pid, products, attrs, cats, policy, subs)}
             q["options"] = [o for o in q["options"] if o["id"] in top3 and (pid, o["id"]) not in judged]
+        n_all = len(q["options"]) if pid not in qs else -1
         q["options"] = [o for o in q["options"] if not sure(pid, o["id"])]
+        q["full"] = len(q["options"]) == n_all  # 보기 전부를 물었는가 — 아니면 응답은 판정에만 쓰고 채점에는 안 쓴다
         if not q["options"]:
             continue
         rel = relevance(pid, products, answers)

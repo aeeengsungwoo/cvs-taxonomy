@@ -1,7 +1,8 @@
 """선별 설문 응답을 survey/answers/Pxx.json 에 덧붙인다. 응답마다 그때 본 보기(shown)와 라운드 이름을 남긴다.
 보기 밖 ID 는 버리고, 대기열에 없는 (페르소나, 문항) 은 받지 않는다.
 
-python tools/survey_merge.py <라운드 이름> <응답 JSON>...   (응답 JSON = {"P01": [{q, skip, accept, best, why}], ...})"""
+python tools/survey_merge.py <라운드 이름> <응답 JSON>...   (응답 JSON = {"P01": [{q, skip, accept, best, why}], ...})
+python tools/survey_merge.py --validation <라운드 이름> <응답 JSON>...   검증 설문(survey/validation_questions.json) → survey/validation/ (판정에 안 씀)"""
 import json
 import sys
 from pathlib import Path
@@ -10,12 +11,16 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def main(name, *paths):
-    queue = {q["q"]: q for q in json.loads((ROOT / "survey/queue.json").read_text(encoding="utf-8"))}
+    folder, qfile = "answers", "queue.json"
+    if name == "--validation":
+        (folder, qfile), (name, *paths) = ("validation", "validation_questions.json"), paths
+    queue = {q["q"]: q for q in json.loads((ROOT / "survey" / qfile).read_text(encoding="utf-8"))}
     added = dropped = 0
     for path in paths:
         for who, answers in json.loads(Path(path).read_text(encoding="utf-8")).items():
-            f = ROOT / f"survey/answers/{who}.json"
-            d = json.loads(f.read_text(encoding="utf-8"))
+            f = ROOT / f"survey/{folder}/{who}.json"
+            f.parent.mkdir(exist_ok=True)
+            d = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {"persona": who, "answers": []}
             for a in answers:
                 q = queue.get(a["q"])
                 if not q or who not in q["personas"]:
@@ -25,7 +30,7 @@ def main(name, *paths):
                 accept = [b for b in a.get("accept") or [] if b in shown]
                 d["answers"].append({"q": a["q"], "skip": bool(a.get("skip")), "accept": accept,
                                      "best": a.get("best") if a.get("best") in accept else (accept[0] if accept else None),
-                                     "why": a.get("why", ""), "shown": shown, "round": name})
+                                     "why": a.get("why", ""), "shown": shown, "round": name, "partial": not q.get("full")})
                 added += 1
             f.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
     print(f"라운드 {name}: 응답 {added}건 추가, 대기열 밖 {dropped}건 버림")
