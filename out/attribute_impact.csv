@@ -1,36 +1,36 @@
 ﻿type,attr,name,depth,weight,score_used,structural_use,delta_objective,top5_churn,missing_rate,score_role,verdict,reason
-snack,category,카테고리,1,3.0,O,TPO 규칙 · 정책:complement · 정책:identity · 정책:restricted · 콤보 장면,0.0185,0.203,0.0,기여,유지,점수·정책 둘 다 씀
-snack,base,주원료,1,1.5,O,,0.0497,0.137,0.0,기여,유지,빼면 성능 하락
-snack,fried,유탕여부,1,1.0,O,,-0.0013,0.008,0.0,미미,제거 후보,성능·추천 목록 모두 영향 미미
-snack,cook_method,제조방식,1,1.5,O,,-0.0096,0.091,0.0,노이즈,제거 권장,빼면 성능 상승
-snack,flavor,맛계열,2,2.0,O,정책:complement,0.1392,0.215,0.0,기여,유지,점수·정책 둘 다 씀
-snack,spicy,맵기,2,1.5,O,정책:complement · 정책:substitute,0.0011,0.029,0.0,미미,유지,정책용(점수 영향 미미)
-snack,texture,식감,2,1.5,O,TPO 규칙,0.0374,0.181,0.0,기여,유지,점수·정책 둘 다 씀
-snack,shape,형태,2,0.5,O,TPO 규칙,0.0111,0.089,0.0,기여,유지,점수·정책 둘 다 씀
-snack,price_band,가격대,3,1.0,O,정책:substitute · 콤보 예산,-0.0026,0.008,0.0,미미,유지,정책용(점수 영향 미미)
-snack,size,용량,3,0.5,O,정책:substitute,0.0004,0.0,0.0,미미,유지,정책용(점수 영향 미미)
-snack,occasion,구매상황,3,1.5,O,TPO 규칙 · 정책:complement · 정책:substitute · 콤보 장면,0.0097,0.037,0.0,기여,유지,점수·정책 둘 다 씀
+snack,category,카테고리,1,3.0,O,TPO 규칙 · 정책:complement · 정책:identity · 정책:restricted · 콤보 장면,0.0284,0.203,0.0,기여,유지,점수·정책 둘 다 씀
+snack,base,주원료,1,1.5,O,,0.0523,0.177,0.0,기여,유지,빼면 성능 하락
+snack,fried,유탕여부,1,0,,,0.0,0.0,0.0,보관,보관,"가중치 0으로 점수에서 뺌, 정의·데이터는 남김"
+snack,cook_method,제조방식,1,0,,,0.0,0.0,0.0,보관,보관,"가중치 0으로 점수에서 뺌, 정의·데이터는 남김"
+snack,flavor,맛계열,2,2.0,O,정책:complement,0.1358,0.267,0.0,기여,유지,점수·정책 둘 다 씀
+snack,spicy,맵기,2,1.5,O,정책:complement · 정책:substitute,0.0013,0.058,0.0,미미,유지,정책용(점수 영향 미미)
+snack,texture,식감,2,1.5,O,TPO 규칙,0.033,0.164,0.0,기여,유지,점수·정책 둘 다 씀
+snack,shape,형태,2,0.5,O,TPO 규칙,0.0172,0.117,0.0,기여,유지,점수·정책 둘 다 씀
+snack,price_band,가격대,3,1.0,O,정책:substitute · 콤보 예산,-0.0001,0.008,0.0,미미,유지,정책용(점수 영향 미미)
+snack,size,용량,3,0.5,O,정책:substitute,0.0002,0.0,0.0,미미,유지,정책용(점수 영향 미미)
+snack,occasion,구매상황,3,1.5,O,TPO 규칙 · 정책:complement · 정책:substitute · 콤보 장면,0.0069,0.029,0.0,기여,유지,점수·정책 둘 다 씀
 snack,target,주타깃,4,0.5,,정책:restricted,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
 snack,maker,제조사,4,0.5,,,0.0,0.0,0.0,미사용,제거 후보,현재 뎁스 밖이라 점수에 안 쓰임
-snack,line,브랜드 라인,4,0,,정책:anchor,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
-snack,menu,대표 메뉴,4,0,,정책:anchor,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
-ramen,category,카테고리,1,3.0,O,TPO 규칙 · 정책:complement · 정책:identity · 정책:restricted · 콤보 장면,0.0125,0.0,0.0,기여,유지,점수·정책 둘 다 씀
-ramen,fried,유탕여부,1,1.0,O,,-0.002,0.0,0.0,미미,제거 후보,성능·추천 목록 모두 영향 미미
-ramen,flavor,맛계열,2,2.0,O,정책:complement,0.0079,0.045,0.0,기여,유지,점수·정책 둘 다 씀
-ramen,spicy,맵기,2,1.5,O,정책:complement · 정책:substitute,0.0152,0.0,0.0,기여,유지,점수·정책 둘 다 씀
+snack,line,브랜드 라인,4,0,,정책:anchor,0.0,0.0,0.0,보관,유지,정책용(점수 가중치 0)
+snack,menu,대표 메뉴,4,0,,정책:anchor,0.0,0.0,0.0,보관,유지,정책용(점수 가중치 0)
+ramen,category,카테고리,1,3.0,O,TPO 규칙 · 정책:complement · 정책:identity · 정책:restricted · 콤보 장면,0.0483,0.054,0.0,기여,유지,점수·정책 둘 다 씀
+ramen,fried,유탕여부,1,0,,,0.0,0.0,0.0,보관,보관,"가중치 0으로 점수에서 뺌, 정의·데이터는 남김"
+ramen,flavor,맛계열,2,2.0,O,정책:complement,0.0215,0.043,0.0,기여,유지,점수·정책 둘 다 씀
+ramen,spicy,맵기,2,1.5,O,정책:complement · 정책:substitute,0.0267,0.0,0.0,기여,유지,점수·정책 둘 다 씀
 ramen,container,포장형태,1,1.5,O,TPO 규칙 · 정책:substitute · 콤보 장면,0.0,0.0,0.0,미미,유지,정책용(점수 영향 미미)
 ramen,style,조리형태,1,2.0,O,TPO 규칙 · 정책:complement · 정책:identity · 정책:substitute · 콤보 장면,0.0,0.0,0.0,미미,유지,정책용(점수 영향 미미)
-ramen,broth,국물베이스,2,1.5,O,,-0.0283,0.0,0.05,노이즈,제거 권장,빼면 성능 상승
-ramen,noodle,면,2,1.0,O,,-0.002,0.0,0.0,미미,제거 후보,성능·추천 목록 모두 영향 미미
+ramen,broth,국물베이스,2,0,,,0.0,0.0,0.04,보관,보관,"가중치 0으로 점수에서 뺌, 정의·데이터는 남김"
+ramen,noodle,면,2,0,,,0.0,0.0,0.0,보관,보관,"가중치 0으로 점수에서 뺌, 정의·데이터는 남김"
 ramen,price_band,가격대,3,1.0,,정책:substitute · 콤보 예산,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
 ramen,size,용량,3,0.5,,정책:substitute,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
 ramen,occasion,구매상황,3,1.5,,TPO 규칙 · 정책:complement · 정책:substitute · 콤보 장면,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
 ramen,target,주타깃,4,0.5,,정책:restricted,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
 ramen,maker,제조사,4,0.5,,,0.0,0.0,0.0,미사용,제거 후보,현재 뎁스 밖이라 점수에 안 쓰임
-ramen,line,브랜드 라인,4,0,,정책:anchor,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
-ramen,menu,대표 메뉴,4,0,,정책:anchor,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
-beverage,category,카테고리,1,3.0,O,TPO 규칙 · 정책:complement · 정책:identity · 정책:restricted · 콤보 장면,0.0256,0.0,0.0,기여,유지,점수·정책 둘 다 씀
-beverage,base,주원료,1,1.5,O,,0.0064,0.0,0.04,기여,유지,빼면 성능 하락
+ramen,line,브랜드 라인,4,0,,정책:anchor,0.0,0.0,0.0,보관,유지,정책용(점수 가중치 0)
+ramen,menu,대표 메뉴,4,0,,정책:anchor,0.0,0.0,0.0,보관,유지,정책용(점수 가중치 0)
+beverage,category,카테고리,1,3.0,O,TPO 규칙 · 정책:complement · 정책:identity · 정책:restricted · 콤보 장면,0.024,0.0,0.0,기여,유지,점수·정책 둘 다 씀
+beverage,base,주원료,1,1.5,O,,0.0,0.0,0.04,미미,제거 후보,성능·추천 목록 모두 영향 미미
 beverage,flavor,맛계열,2,2.0,O,정책:complement,0.0032,0.0,0.07,미미,유지,정책용(점수 영향 미미)
 beverage,price_band,가격대,3,1.0,,정책:substitute · 콤보 예산,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
 beverage,size,용량,3,0.5,,정책:substitute,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
@@ -39,12 +39,12 @@ beverage,target,주타깃,4,0.5,,정책:restricted,0.0,0.0,0.0,미사용,유지,
 beverage,maker,제조사,4,0.5,,,0.0,0.0,0.0,미사용,제거 후보,현재 뎁스 밖이라 점수에 안 쓰임
 beverage,abv,알코올,1,2.0,O,정책:substitute,0.0,0.0,0.0,미미,유지,정책용(점수 영향 미미)
 beverage,carbonation,탄산,1,1.5,O,TPO 규칙,0.0,0.0,0.0,미미,유지,정책용(점수 영향 미미)
-beverage,caffeine,카페인,2,1.0,O,,0.0,0.0,0.0,미미,제거 후보,성능·추천 목록 모두 영향 미미
+beverage,caffeine,카페인,2,0,,,0.0,0.0,0.0,보관,보관,"가중치 0으로 점수에서 뺌, 정의·데이터는 남김"
 beverage,sugar,당,2,1.0,O,정책:substitute,0.0176,0.0,0.0,기여,유지,점수·정책 둘 다 씀
 beverage,temp,음용온도,3,0.5,,TPO 규칙,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
 beverage,package,용기,3,0.5,,,0.0,0.0,0.0,미사용,제거 후보,현재 뎁스 밖이라 점수에 안 쓰임
-beverage,line,브랜드 라인,4,0,,정책:anchor,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
-beverage,menu,대표 메뉴,4,0,,정책:anchor,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
+beverage,line,브랜드 라인,4,0,,정책:anchor,0.0,0.0,0.0,보관,유지,정책용(점수 가중치 0)
+beverage,menu,대표 메뉴,4,0,,정책:anchor,0.0,0.0,0.0,보관,유지,정책용(점수 가중치 0)
 household,category,카테고리,1,3.0,O,TPO 규칙 · 정책:complement · 정책:identity · 정책:restricted · 콤보 장면,0.0,0.0,0.0,미미,유지,정책용(점수 영향 미미)
 household,price_band,가격대,3,1.0,,정책:substitute · 콤보 예산,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
 household,size,용량,3,0.5,,정책:substitute,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
@@ -53,5 +53,5 @@ household,target,주타깃,4,0.5,,정책:restricted,0.0,0.0,0.0,미사용,유지
 household,maker,제조사,4,0.5,,,0.0,0.0,0.0,미사용,제거 후보,현재 뎁스 밖이라 점수에 안 쓰임
 household,purpose,용도,1,3.0,O,TPO 규칙,0.0,0.0,0.0,미미,유지,정책용(점수 영향 미미)
 household,spec,규격,1,2.0,O,정책:substitute,0.0,0.0,0.0,미미,유지,정책용(점수 영향 미미)
-household,line,브랜드 라인,4,0,,정책:anchor,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
-household,menu,대표 메뉴,4,0,,정책:anchor,0.0,0.0,0.0,미사용,유지,정책용(점수엔 안 씀)
+household,line,브랜드 라인,4,0,,정책:anchor,0.0,0.0,0.0,보관,유지,정책용(점수 가중치 0)
+household,menu,대표 메뉴,4,0,,정책:anchor,0.0,0.0,0.0,보관,유지,정책용(점수 가중치 0)

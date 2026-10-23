@@ -494,7 +494,9 @@ def cmd_impact(args):
             missing = 0.0 if a.get("optional") else sum(aid not in products[i]["attrs"] for i in ids) / len(ids)
             in_depth = a["depth"] <= w[typ]["max_depth"] and a["weight"] > 0
             uses = " · ".join(sorted(used.get(aid, ())))
-            if not in_depth:
+            if a["weight"] == 0:
+                role = "보관"  # 영향도 판정으로 가중치 0 — 정의·데이터는 남기고 점수에서만 뺌
+            elif not in_depth:
                 role = "미사용"
             elif delta >= cfg["keep_delta"]:
                 role = "기여"
@@ -508,12 +510,13 @@ def cmd_impact(args):
                 verdict = "유지"
                 why = {"기여": "점수·정책 둘 다 씀", "노이즈": "정책엔 필요, 점수에선 노이즈 → 점수 가중치만 0 검토",
                        "미미": "정책용(점수 영향 미미)", "보류": "정책용, 점수 영향은 검수로 판단",
-                       "미사용": "정책용(점수엔 안 씀)"}[role]
+                       "미사용": "정책용(점수엔 안 씀)", "보관": "정책용(점수 가중치 0)"}[role]
             else:
                 verdict, why = {"기여": ("유지", "빼면 성능 하락"), "노이즈": ("제거 권장", "빼면 성능 상승"),
                                 "보류": ("보류", "성능은 같은데 추천 목록이 바뀜 → 검수로 판단"),
                                 "미미": ("제거 후보", "성능·추천 목록 모두 영향 미미"),
-                                "미사용": ("제거 후보", "현재 뎁스 밖이라 점수에 안 쓰임")}[role]
+                                "미사용": ("제거 후보", "현재 뎁스 밖이라 점수에 안 쓰임"),
+                                "보관": ("보관", "가중치 0으로 점수에서 뺌, 정의·데이터는 남김")}[role]
             if missing >= cfg["missing_warn"]:
                 why += " · 결측 높음 → 데이터 보강"
             rows.append((typ, aid, a["name"], a["depth"], a["weight"], "O" if in_depth else "", uses,
