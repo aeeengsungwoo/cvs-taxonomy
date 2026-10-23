@@ -1,55 +1,70 @@
 # cvs-taxonomy
 
-우리동네GS 추천(대체재·보완재·트렌드·콤보)용 온톨로지 그래프DB.
-텍소노미 → TPO 추론 → 정책(상품간·규격·속성·아이덴티티)으로 튀는 추천 차단 → 인간 검수 루프 → Neo4j 적재.
-설계 문서: `docs/design.md` / `docs/design.pdf`, 속성 증강 흐름도: `docs/attribute_augmentation.mmd`
-1차 범위는 **과자 43개 + 라면 18개**(시드). 다음 순서는 생필품 → 음료(보완재 본격 확장).
+우리동네GS 추천(대체재 · 보완재 · 트렌드 · 콤보)을 위한 온톨로지 그래프DB.
+과자 → 라면 → 생필품 → 음료 순서로 같은 루프를 반복해 텍소노미·속성·정책을 정의하고, 추천 간선과 강도를 Neo4j에 적재한다.
+핵심은 **TPO와 상품간·규격·속성·아이덴티티 정책으로 튀는 추천을 막는 것**이다.
+
+![GS 추천 온톨로지 보드](docs/board.svg)
+
+> 보드는 실제 파이프라인 결과로 생성된다. 데이터·정책을 바꾸면 `python tools/board_svg.py` 로 다시 그린다.
+
+## 범위
+
+| type | 시드 상품 | 정답셋(O/X) | 선택 뎁스 | 대체 간선 | 정책 차단 |
+|---|---|---|---|---|---|
+| 과자 | 43 | 33 | ≤4 | 99 | 10 |
+| 라면 | 18 | 16 | ≤1 | 46 | 5 |
+| 음료 | 27 | 20 | ≤1 | 16 | 53 |
+| 생필품 | 17 | 9 | ≤1 | 2 | 13 |
+
+보완 간선 566 (과자↔음료 184 · 라면↔음료 166 · 과자↔라면 153 · 생필품↔생필품 56 …) · 콤보 34 (장면 7개) · 트렌드는 데이터 대기.
 
 ## 속성 증강 플로우
 
 ```mermaid
 flowchart LR
   subgraph IN["원본 상품"]
-    R1["먹태깡 청양마요맛<br/>카테고리 SNK.WHEAT<br/>맛: 짠맛·해산물·청양·마요"]
+    R1["과자 · 라면 · 음료 · 생필품<br/>data/products.csv"]
   end
 
   subgraph N["① 정규화"]
-    N1["동의어 흡수<br/>청양 → 매운맛"]
+    N1["동의어 흡수<br/>청양 → 매운맛, 제로 → 당 없음"]
     N2["처음 보는 값<br/>마요 → 비움 + 후보 큐"]
   end
 
   subgraph D["② 속성 부여 (뎁스)"]
-    D1["뎁스1 정체성<br/>카테고리·주원료·유탕·제조방식<br/>(라면: 포장형태·조리형태)"]
-    D2["뎁스2 감각<br/>맛계열·맵기·식감·형태<br/>(라면: 국물베이스·면)"]
-    D3["뎁스3 상황·가치<br/>가격대·용량·섭취상황"]
-    D4["뎁스4 세부<br/>주타깃·제조사<br/>(sweep 결과 미사용)"]
-    D1 --> D2 --> D3 -.-> D4
+    D1["뎁스1 정체성<br/>카테고리·주원료·조리형태<br/>알코올·탄산·용도·규격"]
+    D2["뎁스2 감각<br/>맛계열·맵기·식감·카페인·당"]
+    D3["뎁스3 상황·가치<br/>가격대·용량·구매상황·음용온도"]
+    D4["뎁스4 세부<br/>주타깃·제조사"]
+    D1 --> D2 --> D3 --> D4
   end
 
   subgraph T["③ TPO 추론"]
-    T1["술안주 → 저녁·심야 / 집·야외"]
-    T2["봉지 → 사무실·이동중 제외"]
-    T3["국물 → 추움·비 / 더움 제외"]
+    T1["술안주·음주 → 저녁·심야"]
+    T2["봉지라면 → 사무실 제외"]
+    T3["국물·온장 → 추움 / 더움 제외"]
+    T4["주류 → 아침·사무실 제외"]
   end
 
   subgraph I["④ 아이덴티티"]
-    I1["과자: 카테고리 2단계<br/>라면: 조리형태"]
+    I1["과자·음료: 카테고리 2단계<br/>라면: 조리형태<br/>생필품: 카테고리 3단계"]
   end
 
   subgraph S["⑤ 점수"]
-    S1["뎁스별 가중 유사도<br/>뎁스≤3 · AUC 0.988 · MRR 0.917"]
+    S1["type별 뎁스 가중 유사도<br/>sweep으로 뎁스 결정"]
   end
 
   subgraph P["⑥ 정책 필터"]
-    P1["상품간: 섭취상황 겹침"]
-    P2["규격: 가격대·용량 1단계<br/>맵기 2단계"]
-    P3["아이덴티티: 같은 대분류/조리형태"]
-    P4["TPO: 시간대 겹침"]
+    P1["상품간: 구매상황 겹침<br/>주류 × 어린이 금지"]
+    P2["규격: 가격대·용량 1단계<br/>맵기·당 2단계, 알코올 0단계<br/>생필품 규격 일치"]
+    P3["아이덴티티: 같은 정체성만 대체<br/>다른 정체성만 보완"]
+    P4["TPO: 보완재 시간대 겹침"]
   end
 
   subgraph O["⑦ 추천 간선"]
     O1["SUBSTITUTE<br/>검수O 0.5+0.5×점수"]
-    O2["COMPLEMENT<br/>지정 0.9 / 규칙 0.25~0.35"]
+    O2["COMPLEMENT<br/>지정 0.6~0.9 / 규칙 0.25~0.5"]
     O3["COMBO<br/>장면 TPO·예산"]
     O4["TREND<br/>판매·검색 신호"]
   end
@@ -59,7 +74,7 @@ flowchart LR
 
   R1 --> N1 & N2
   N1 --> D1
-  D3 --> T1 & T2 & T3
+  D3 --> T1 & T2 & T3 & T4
   D1 --> I1
   D3 --> S1
   I1 --> P3
@@ -73,8 +88,6 @@ flowchart LR
   H -- "O/X → 정답셋 → sweep" --> S1
   N2 -- "3개 상품 이상 → 정의 붙여 승격" --> D2
 ```
-
-FigJam 스타일 보드(상품 예시·정책 차단 포함): [`docs/board.html`](docs/board.html) — 내려받아 브라우저로 열면 됩니다.
 
 ## 그래프 스키마
 
@@ -90,66 +103,74 @@ flowchart LR
   C -- "INCLUDES {role}" --> P
   P == "SUBSTITUTE / COMPLEMENT {strength}" ==> P
   P -- "IN_TREND {score}" --> Tr[Trend]
+  Pol[Policy]
 ```
 
+## 텍소노미와 속성 뎁스
 
-## 구성
+카테고리 71노드, 속성 25개. 모든 카테고리·속성·값에 정의가 있다(`validate` 가 빠진 정의를 실패 처리).
 
-| 경로 | 내용 |
-|---|---|
-| `taxonomy/categories.yaml` | 카테고리 트리 34노드 (과자 5대분류 · 라면 국물/국물없음). 노드마다 정의 |
-| `taxonomy/schema.yaml` | 속성 17개 · 뎁스 1~4 · 값마다 정의 · 동의어 |
-| `data/products.csv` | 시드 상품 61개. 다중값은 `\|` 로 구분 |
-| `docs/ramen_vs_snack.md` | 과자 vs 라면 공통점·차이점과 설계 반영 내용 |
-| `docs/unknown_attribute_policy.md` | 새 상품에 없는 속성이 들어왔을 때 대응방침 |
-| `review/gold.csv` | 검수 정답셋 (대체 가능 O=1 / X=0) |
-| `review/queue.csv` | 검수 대기 후보 |
-| `config/weights.yaml` | sweep 결과(쓰는 뎁스·뎁스별 가중치 배수) |
-| `ontology/policy.yaml` | 정책: 아이덴티티·대체재·규격·보완재·콤보·트렌드 |
-| `ontology/tpo.yaml` | TPO 차원·속성→TPO 추론 규칙·콤보 장면 6개 |
-| `data/trends.csv` | 트렌드 신호(판매·검색). 현재 비어 있음 |
-| `out/audit.md` | 검수용 리포트: 정책 충돌·장면별 콤보·대체재·정책이 막은 추천 |
+| 뎁스 | 의미 | 공통 | 과자 | 라면 | 음료 | 생필품 |
+|---|---|---|---|---|---|---|
+| 1 정체성 | 무엇인가 | 카테고리 | 주원료·유탕·제조방식 | 유탕·포장형태·조리형태 | 주원료·알코올·탄산 | 용도·규격 |
+| 2 감각 | 어떤 맛인가 | 맛계열 | 맵기·식감·형태 | 맵기·국물베이스·면 | 카페인·당 | — |
+| 3 상황·가치 | 언제·얼마에 | 가격대·용량·구매상황 | | | 음용온도·용기 | |
+| 4 세부 | 누가 | 주타깃·제조사 | | | | |
 
-## 속성 뎁스
+뎁스는 type별로 sweep이 정한다. 뎁스 1~4마다 뎁스별 가중치 배수(0.25/0.5/1/2)를 전부 돌려,
+정책까지 적용한 최종 추천을 정답셋 기준 AUC·MRR로 재고 성능이 거의 같으면(0.01 이내) 얕은 뎁스를 고른다.
+정답셋이 작아서(9~33쌍) 지금 결과는 흔들린다. 과자의 제조사 배수 2는 과적합으로 보이므로 검수로 정답셋을 늘린 뒤 다시 sweep 해야 한다.
 
-| 뎁스 | 의미 | 속성 |
+## 정책 (튀는 추천 방지)
+
+`ontology/policy.yaml`. 점수와 별개인 하드 조건이다. 위반하면 간선을 만들지 않고 `out/audit.md` 에 사유를 남긴다.
+
+| 정책 | 내용 | 막은 예 |
 |---|---|---|
-| 1 정체성 | 무엇인가 | 카테고리, 주원료, 유탕여부, 제조방식 / (라면) 포장형태, 조리형태 |
-| 2 감각 | 어떤 맛·식감인가 | 맛계열, 맵기, 식감, 형태 / (라면) 국물베이스, 면 |
-| 3 상황·가치 | 언제·얼마에 | 가격대, 용량, 섭취상황 |
-| 4 세부 | 누가 | 주타깃, 제조사 |
+| 아이덴티티 | 같은 정체성끼리만 대체, 다른 정체성끼리만 보완 | 짜파게티 → 비빔면 (조리형태 다름) |
+| 상품간 | 대체재는 구매상황이 겹쳐야 함 | 하리보 → 자일리톨 껌 (간식 vs 입가심) |
+| 규격 | 가격대·용량 1단계, 맵기·당 2단계, 알코올 0단계, 생필품 규격 일치 | 코카콜라 → 코카콜라 제로, AA → AAA, 맥주 → 소주 |
+| 제한 상품 | 주류 × 어린이 상품 보완·콤보 금지 | — |
+| TPO | 보완재는 시간대가 겹쳐야 함 | 해장 라면 + 게토레이 |
 
-뎁스는 고정값이 아니라 `sweep` 이 정한다. 뎁스 1~4 각각 뎁스별 가중치 배수를 그리드로 돌려
-검수 정답셋 기준 **AUC**(대체 O 쌍이 X 쌍보다 높게 나오는 비율)와 **MRR**(대체 O 후보가 전체 중 몇 등인지)을 재고,
-성능이 거의 같으면(0.01 이내) 더 얕은 뎁스를 고른다. 현재 시드 기준 결과:
+검수에서 O를 받았는데 정책에 걸리면 '정책 충돌'로 따로 보고한다. 현재 1건(2080 칫솔 ↔ 여행용 칫솔세트) — 정책과 검수 중 어느 쪽이 맞는지 사람이 정한다.
 
-```
-뎁스≤1  AUC 0.957  MRR 0.888  종합 0.923
-뎁스≤2  AUC 0.980  MRR 0.902  종합 0.941
-뎁스≤3  AUC 0.988  MRR 0.917  종합 0.952   ← 선택 (뎁스2·3 배수 0.5)
-뎁스≤4  AUC 0.990  MRR 0.902  종합 0.946   (제조사·타깃을 넣으면 순위가 오히려 나빠짐)
-```
+## TPO와 콤보
 
-## 점수와 간선 강도
+상품마다 TPO를 찍지 않고 속성에서 추론한다(`ontology/tpo.yaml`). 새 상품도 속성만 채우면 TPO가 따라온다.
 
-- **대체재 점수**: 같은 type 안에서 속성별 유사도(트리 거리 / 일치 / 자카드 / 순서 거리)의 가중 평균. 결측 처리는 대응방침 문서 참고.
-- **SUBSTITUTE 강도**: 검수 O → `0.5 + 0.5×점수` (바닥 0.5) · 검수 X → 간선 없음 · 미검수 → `0.8×점수` (상품당 상위 5개, 점수 0.55 이상)
-- **COMPLEMENT 강도**: 직접 지정 조합(예: 짜파게티+너구리 0.9) > 속성 규칙(0.25~0.35, 가설이라 낮게)
-- **정책 필터**: 점수와 별개인 하드 조건. 위반하면 간선을 만들지 않고 audit.md 에 사유를 남긴다. 검수 O인데 위반이면 '정책 충돌'.
+- 시간대: 아침 · 점심 · 오후 · 저녁 · 심야 / 장소: 집 · 사무실·학교 · 야외·캠핑 · 이동중 / 날씨: 더움 · 추움 · 비
+- 예: 봉지라면 → 사무실 제외, 국물·온장 커피 → 더움 제외, 주류 → 아침·사무실·이동중 제외, 우산 → 비
+
+콤보 장면 7개: 심야 혼술·야식, 사무실 점심 컵라면, 오후 사무실 나눔 간식, 캠핑 저녁, 더운 날 점심, 비 오는 날 퇴근길, 갑작스런 외박.
+장면 TPO에 맞고, 정체성이 겹치지 않고, 제한 정책을 지키고, 예산 안인 조합만 남긴다.
+
+## 간선 강도
+
+| 관계 | 강도 |
+|---|---|
+| 대체 — 검수 O | 0.5 + 0.5 × 유사도 (바닥 0.5) |
+| 대체 — 검수 X | 간선 없음 |
+| 대체 — 미검수 | 0.8 × 유사도 (상품당 상위 5, 유사도 0.55 이상) |
+| 보완 — 지정 조합 | 사람이 정한 값 (짜파구리 0.9, 칫솔+치약 0.9, 불닭+우유 0.7 …) |
+| 보완 — 속성 규칙 | 0.25 ~ 0.5 (안주+맥주 0.5, 매운 라면+우유 0.45 …) |
+| 콤보 궁합 | 상품쌍 보완 강도 평균, 없으면 시간대 겹침 × 0.3 |
 
 ## 루프
 
 ```
 python cvs.py validate        # 1. 정의 누락·처음 보는 값 점검 → review/new_values.csv
-python cvs.py sweep           # 2. 뎁스·가중치 튜닝 → config/weights.yaml
-python cvs.py review export   # 3. 검수 후보 → review/queue.csv
+python cvs.py sweep           # 2. type별 뎁스·가중치 튜닝 → config/weights.yaml
+python cvs.py review export   # 3. 검수 후보 → review/queue.csv (정책 차단 쌍은 제외)
 #    queue.csv 의 verdict 칸에 O(대체 가능) / X(아님) 입력
-python cvs.py review import   # 4. 검수 결과 → gold.csv
+python cvs.py review import   # 4. 검수 결과 → review/gold.csv
 python cvs.py sweep           # 5. 늘어난 정답셋으로 다시 튜닝 (2~5 반복)
-python cvs.py graph           # 6. out/graph.cypher, out/edges.csv
+python cvs.py graph           # 6. out/graph.cypher · out/edges.csv · out/audit.md
+python tools/board_svg.py     # 7. README 보드 갱신
 ```
 
-검수에서 X가 많이 나오면 = 스키마가 그 차이를 못 잡는다는 뜻이다. 그 쌍을 보고 속성/값을 추가하거나 정의를 고친 뒤 루프를 다시 돈다.
+X가 많이 나오면 스키마나 정책이 그 차이를 못 잡는다는 뜻이다. 그 쌍을 보고 속성·정의·정책을 고친 뒤 루프를 다시 돈다.
+새 카테고리를 넣는 절차와 생필품·음료 대응방침은 [`docs/new_category_policy.md`](docs/new_category_policy.md), 처음 보는 속성 대응은 [`docs/unknown_attribute_policy.md`](docs/unknown_attribute_policy.md).
 
 ## Neo4j 적재
 
@@ -159,21 +180,33 @@ pip install neo4j
 NEO4J_PASSWORD=cvs-taxonomy python cvs.py graph --push
 ```
 
-Docker 없이 쓰려면 Neo4j Browser/AuraDB에 `out/graph.cypher` 를 실행한다. 재실행해도 노드는 MERGE, 추천 간선은 지우고 다시 만든다.
+Docker 없이 쓰려면 Neo4j Browser/AuraDB에 `out/graph.cypher` 를 실행한다. 재실행하면 노드는 MERGE, 추천 간선·콤보는 지우고 다시 만든다.
 
-그래프 모델:
-
-```
-(:Product)-[:IN_CATEGORY]->(:Category)-[:SUBCATEGORY_OF]->(:Category)
-(:Product)-[:HAS_ATTR]->(:AttrValue)<-[:HAS_VALUE]-(:Attribute)
-(:Product)-[:SUBSTITUTE {strength, model_score, review, depth}]->(:Product)
-(:Product)-[:COMPLEMENT {strength, reason, source}]->(:Product)
-(:Product)-[:FITS|AVOIDS]->(:TPO)<-[:AT]-(:Scene)<-[:FOR]-(:Combo)-[:INCLUDES {role}]->(:Product)
-(:Product)-[:IN_TREND {score, source}]->(:Trend {period})
+```cypher
+// 신라면 대체재
+MATCH (:Product {name:'신라면'})-[r:SUBSTITUTE]-(p) RETURN p.name, r.strength ORDER BY r.strength DESC
+// 카스와 같이 살 것
+MATCH (:Product {name:'카스 프레시 500ml 캔'})-[r:COMPLEMENT]-(p) RETURN p.name, r.strength, r.reason ORDER BY r.strength DESC
+// 비 오는 날 퇴근길 콤보
+MATCH (c:Combo)-[:FOR]->(:Scene {id:'rainy_commute'}), (c)-[i:INCLUDES]->(p) RETURN c.rank, i.role, p.name ORDER BY c.rank
 ```
 
-예: 신라면 대체재 → `MATCH (:Product {name:'신라면'})-[r:SUBSTITUTE]-(p) RETURN p.name, r.strength ORDER BY r.strength DESC`
+## 파일
+
+| 경로 | 내용 |
+|---|---|
+| `taxonomy/categories.yaml` | 카테고리 트리 (과자·라면·음료·생필품), 노드마다 정의 |
+| `taxonomy/schema.yaml` | 속성 25개 · 뎁스 · 값마다 정의 · 동의어 |
+| `ontology/policy.yaml` | 아이덴티티 · 대체재 · 규격 · 보완재 · 제한 상품 · 콤보 · 트렌드 정책 |
+| `ontology/tpo.yaml` | TPO 차원 · 속성→TPO 추론 규칙 · 콤보 장면 7개 |
+| `data/products.csv` | 시드 상품 105개. 다중값은 `\|` 로 구분 |
+| `data/trends.csv` | 트렌드 신호(판매·검색). 현재 비어 있음 |
+| `review/gold.csv` · `review/queue.csv` | 검수 정답셋 · 검수 대기 |
+| `config/weights.yaml` | sweep 결과 (type별 뎁스·배수) |
+| `docs/design.md` · `docs/design.pdf` | 설계 문서 |
+| `docs/board.svg` | 위 보드 |
 
 ## 주의
 
-- 시드 상품 속성값·가격대는 일반 지식 기반 **초안**이다. 검수 정답셋(`gold.csv` source=seed)도 초안이라 사람 검수로 바꿔 가야 한다.
+- 시드 상품의 속성값·가격대와 정답셋은 일반 지식 기반 초안이다. 사람 검수로 바꿔 가야 한다.
+- 콤보 궁합은 규칙 기반이다. 장바구니(동시구매) 데이터가 생기면 보완 강도를 그 값으로 대체한다.

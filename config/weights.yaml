@@ -1,12 +1,49 @@
-# python cvs.py sweep 이 생성. 직접 고치지 말고 검수셋을 늘린 뒤 다시 sweep 할 것.
-max_depth: 3
-depth_mult:
-  1: 1.0
-  2: 0.5
-  3: 0.5
-  4: 1.0
-metrics:
-  auc: 0.9882
-  mrr: 0.9167
-  objective: 0.9525
-  gold_pairs: 49
+# python cvs.py sweep 이 생성(type별 뎁스·배수). 직접 고치지 말고 검수셋을 늘린 뒤 다시 sweep 할 것.
+snack:
+  max_depth: 4
+  depth_mult:
+    1: 1.0
+    2: 1.0
+    3: 0.25
+    4: 2.0
+  metrics:
+    auc: 1.0
+    mrr: 0.9375
+    objective: 0.9688
+    gold_pairs: 33
+ramen:
+  max_depth: 1
+  depth_mult:
+    1: 1.0
+    2: 1.0
+    3: 1.0
+    4: 1.0
+  metrics:
+    auc: 0.9833
+    mrr: 1.0
+    objective: 0.9917
+    gold_pairs: 16
+beverage:
+  max_depth: 1
+  depth_mult:
+    1: 1.0
+    2: 1.0
+    3: 1.0
+    4: 1.0
+  metrics:
+    auc: 0.9848
+    mrr: 1.0
+    objective: 0.9924
+    gold_pairs: 20
+household:
+  max_depth: 1
+  depth_mult:
+    1: 1.0
+    2: 1.0
+    3: 1.0
+    4: 1.0
+  metrics:
+    auc: 0.8333
+    mrr: 1.0
+    objective: 0.9167
+    gold_pairs: 9

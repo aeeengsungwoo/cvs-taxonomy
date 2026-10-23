@@ -3,7 +3,8 @@
 # depth  : 속성 뎁스. 1=정체성(무엇인가) 2=감각(어떤 맛·식감인가) 3=상황·가치(언제·얼마에) 4=세부(누가 만들었나)
 #          `python cvs.py sweep` 이 뎁스·가중치를 바꿔가며 검수 정답셋에 대한 추천 성능을 재고, 쓸 뎁스를 정한다.
 # type   : tree(카테고리 트리 거리) | single(같으면 1) | multi(자카드) | ordinal(순서 거리) | open(값 목록 없음, 같으면 1)
-# applies_to : snack / ramen. 공통 속성 = 둘 다. 해당 안 되는 속성은 비교에서 아예 빠진다.
+# applies_to : snack / ramen / beverage / household. 해당 안 되는 속성은 비교에서 아예 빠진다.
+# optional : true 면 빈 칸을 결측이 아니라 '해당 없음'으로 본다(예: 규격이 없는 생필품).
 # weight : 기본 가중치. 최종 가중치 = weight × depth 배수(config/weights.yaml).
 # synonyms : 원본 데이터 표기 흔들림 흡수용. 처음 보는 값 처리는 docs/unknown_attribute_policy.md.
 attributes:
@@ -12,7 +13,7 @@ attributes:
     depth: 1
     type: tree
     weight: 3.0
-    applies_to: [snack, ramen]
+    applies_to: [snack, ramen, beverage, household]
     definition: taxonomy/categories.yaml 의 말단 노드. 같은 노드면 1, 공통 조상이 깊을수록 높다.
 
   - id: base
@@ -20,7 +21,7 @@ attributes:
     depth: 1
     type: multi
     weight: 1.5
-    applies_to: [snack]
+    applies_to: [snack, beverage]
     definition: 원재료명 상위에 오며 맛·식감을 결정하는 원료. 첨가 소량 원료는 넣지 않는다.
     values:
       감자: {definition: 생감자 또는 감자 플레이크·전분이 주원료.}
@@ -30,7 +31,14 @@ attributes:
       쌀: {definition: 쌀가루·현미가 주원료.}
       땅콩: {definition: 땅콩이 핵심 원료.}
       카카오: {definition: 초콜릿·코코아가 핵심 원료., synonyms: [초콜릿, 코코아]}
-      당류: {definition: 설탕·물엿·포도당 등이 주성분(캔디·젤리·껌)., synonyms: [설탕, 물엿]}
+      당류: {definition: 설탕·물엿·포도당 등이 주성분(캔디·젤리·껌·청량음료)., synonyms: [설탕, 물엿]}
+      우유: {definition: 원유·우유가 주원료(우유·라떼).}
+      커피: {definition: 커피 추출액이 주원료.}
+      과즙: {definition: 과일 즙이 주원료.}
+      곡물차: {definition: 보리·옥수수 등 곡물을 우린 차.}
+      맥아: {definition: 맥아·보리를 발효(맥주).}
+      주정: {definition: 희석식 소주의 주정.}
+      물: {definition: 물이 주성분이고 당·향이 거의 없음(생수·제로음료).}
 
   - id: fried
     name: 유탕여부
@@ -64,7 +72,7 @@ attributes:
     depth: 2
     type: multi
     weight: 2.0
-    applies_to: [snack, ramen]
+    applies_to: [snack, ramen, beverage]
     definition: 먹었을 때 지배적으로 느껴지는 맛. 최대 3개까지 지배적인 것만 붙인다.
     values:
       짠맛: {definition: 소금·간장 등 짭짤함이 중심., synonyms: [짭짤, 소금]}
@@ -81,6 +89,7 @@ attributes:
       고기: {definition: 소·돼지·닭 육수 풍미가 중심.}
       양파: {definition: 양파·마늘 등 향신채 풍미가 중심.}
       민트: {definition: 시원한 민트·자일리톨 향.}
+      쓴맛: {definition: 커피·홉·주정의 쓴맛이 중심.}
 
   - id: spicy
     name: 맵기
@@ -192,7 +201,7 @@ attributes:
     depth: 3
     type: ordinal
     weight: 1.0
-    applies_to: [snack, ramen]
+    applies_to: [snack, ramen, beverage, household]
     definition: 편의점 단품 정상가 기준 구간.
     values:
       ~1500: {definition: "1,500원 이하."}
@@ -205,7 +214,7 @@ attributes:
     depth: 3
     type: ordinal
     weight: 0.5
-    applies_to: [snack, ramen]
+    applies_to: [snack, ramen, beverage, household]
     definition: 1회 구매 단위가 몇 명·몇 끼 분량인가.
     values:
       소: {definition: 1인 한 번에 다 먹는 양 이하.}
@@ -213,12 +222,12 @@ attributes:
       대: {definition: 여럿이 나눠 먹는 양.}
 
   - id: occasion
-    name: 섭취상황
+    name: 구매상황
     depth: 3
     type: multi
     weight: 1.5
-    applies_to: [snack, ramen]
-    definition: 이 상품을 주로 사는 상황. 최대 3개.
+    applies_to: [snack, ramen, beverage, household]
+    definition: 이 상품을 주로 사는 상황(먹고 마시는 상황 + 생필품 구매 상황). 최대 3개.
     values:
       간식: {definition: 식사 사이 가볍게 먹음.}
       술안주: {definition: 술과 함께 먹음.}
@@ -228,13 +237,20 @@ attributes:
       나눔: {definition: 여럿이 나눠 먹거나 선물·사무실용.}
       입가심: {definition: 식후·흡연 후 입을 정리.}
       해장: {definition: 음주 다음 날 먹음.}
+      갈증해소: {definition: 목이 말라서 마심.}
+      각성: {definition: 잠을 깨거나 집중하려고 마심(카페인).}
+      식사곁들임: {definition: 식사와 함께 마심.}
+      음주: {definition: 술 그 자체를 마심.}
+      긴급: {definition: 갑자기 필요해져 가까운 편의점에서 바로 삼(생필품의 핵심 상황).}
+      외박·여행: {definition: 집 밖에서 자게 되어 세면·위생용품이 필요함.}
+      비축: {definition: 떨어지기 전에 미리 사 둠.}
 
   - id: target
     name: 주타깃
     depth: 4
     type: single
     weight: 0.5
-    applies_to: [snack, ramen]
+    applies_to: [snack, ramen, beverage, household]
     definition: 주 구매층.
     values:
       전연령: {definition: 연령 구분 없음.}
@@ -246,5 +262,113 @@ attributes:
     depth: 4
     type: open
     weight: 0.5
-    applies_to: [snack, ramen]
+    applies_to: [snack, ramen, beverage, household]
     definition: 판매 제조사(브랜드 오너). 값 목록이 열려 있어 처음 보는 제조사도 그대로 받는다.
+
+  # ── 음료 전용 ──
+  - id: abv
+    name: 알코올
+    depth: 1
+    type: ordinal
+    weight: 2.0
+    applies_to: [beverage]
+    definition: 알코올 도수 구간. 주류 여부가 음료의 정체성을 가장 크게 가른다.
+    values:
+      없음: {definition: 무알코올.}
+      저도수: {definition: 10% 미만(맥주·막걸리).}
+      소주급: {definition: 10~25%(소주).}
+      고도수: {definition: 25% 이상(위스키 등).}
+
+  - id: carbonation
+    name: 탄산
+    depth: 1
+    type: single
+    weight: 1.5
+    applies_to: [beverage]
+    definition: 탄산이 들어 있는가.
+    values:
+      탄산: {definition: 탄산이 있음.}
+      무탄산: {definition: 탄산이 없음.}
+
+  - id: caffeine
+    name: 카페인
+    depth: 2
+    type: ordinal
+    weight: 1.0
+    applies_to: [beverage]
+    definition: 카페인 함량 구간. 각성 목적 구매를 가른다.
+    values:
+      없음: {definition: 카페인 없음.}
+      약: {definition: 콜라·초코우유 수준.}
+      중: {definition: 커피 한 잔 수준.}
+      강: {definition: 에너지드링크 수준.}
+
+  - id: sugar
+    name: 당
+    depth: 2
+    type: ordinal
+    weight: 1.0
+    applies_to: [beverage]
+    definition: 단맛을 내는 당 함량. 제로 음료를 찾는 손님을 가른다.
+    values:
+      없음: {definition: 무가당·제로., synonyms: [제로, 무가당]}
+      적음: {definition: 우유·맥주처럼 원재료 당만 있음.}
+      보통: {definition: 이온음료·라떼 수준.}
+      많음: {definition: 일반 탄산·가공우유·캔커피 수준.}
+
+  - id: temp
+    name: 음용온도
+    depth: 3
+    type: single
+    weight: 0.5
+    applies_to: [beverage]
+    definition: 편의점에서 진열·판매되는 온도. 날씨 TPO를 결정한다.
+    values:
+      차갑게: {definition: 냉장 진열.}
+      따뜻하게: {definition: 온장고 진열.}
+
+  - id: package
+    name: 용기
+    depth: 3
+    type: single
+    weight: 0.5
+    applies_to: [beverage]
+    definition: 음료 용기.
+    values:
+      캔: {definition: 알루미늄 캔.}
+      페트: {definition: 플라스틱 병.}
+      병: {definition: 유리병·단지형 용기.}
+      컵: {definition: 컵 용기(컵커피).}
+      팩: {definition: 종이팩.}
+
+  # ── 생필품 전용 ──
+  - id: purpose
+    name: 용도
+    depth: 1
+    type: single
+    weight: 3.0
+    applies_to: [household]
+    definition: 이 물건으로 해결하려는 일. 생필품은 맛·식감이 없으므로 용도가 정체성의 중심이다.
+    values:
+      닦기: {definition: 손·몸·물건을 닦음(화장지·물티슈).}
+      구강: {definition: 이·입을 관리(칫솔·치약·가글).}
+      면도: {definition: 수염을 깎음.}
+      생리: {definition: 생리 위생.}
+      전원: {definition: 기기에 전원 공급(건전지).}
+      방역: {definition: 호흡기 보호(마스크).}
+      우천: {definition: 비를 막음(우산).}
+
+  - id: spec
+    name: 규격
+    depth: 1
+    type: single
+    weight: 2.0
+    optional: true
+    applies_to: [household]
+    definition: 같은 용도 안에서 호환을 결정하는 물리 규격. 다르면 대체할 수 없다(AA ≠ AAA).
+    values:
+      AA: {definition: AA(2A) 건전지.}
+      AAA: {definition: AAA(3A) 건전지.}
+      중형: {definition: 생리대 중형.}
+      대형: {definition: 생리대 대형.}
+      오버나이트: {definition: 생리대 오버나이트.}

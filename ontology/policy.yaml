@@ -6,45 +6,104 @@
 
 # 아이덴티티: 상품이 '무엇'인가를 가르는 키. 같은 키 = 같은 정체성 = 손님 입장에서 같은 종류.
 identity:
-  snack: {category_level: 2}   # 예: SNK.CHIP / BIS.COOKIE / CHO.BAR
-  ramen: {attrs: [style]}      # 국물 / 짜장 / 볶음 / 비빔
+  snack: {category_level: 2}       # SNK.CHIP / BIS.COOKIE / CHO.BAR
+  ramen: {attrs: [style]}          # 국물 / 짜장 / 볶음 / 비빔
+  beverage: {category_level: 2}    # BEV.CARB / BEV.COFFEE / BEV.MILK / BEV.ALC
+  household: {category_level: 3}  # HOU.ORAL.BRUSH / HOU.ORAL.PASTE — 칫솔과 치약은 정체성이 달라야 보완재가 된다
   definition: >-
-    손님이 '같은 종류'라고 느끼는 단위. 과자는 카테고리 2단계(칩·쿠키·판초콜릿…),
-    라면은 조리형태(국물·짜장·볶음·비빔). 보완재·콤보는 서로 다른 정체성끼리만 묶는다.
+    손님이 '같은 종류'라고 느끼는 단위. 과자·음료는 카테고리 2단계, 라면은 조리형태,
+    생필품은 카테고리 3단계(용도 안의 품목). 보완재·콤보는 서로 다른 정체성끼리만 묶는다.
 
-# 상품간 정책 1 — 대체재: 이게 없을 때 저걸 사도 같은 욕구가 채워지는가.
+# 상품간 정책 1 — 대체재: 이게 없을 때 저걸 사도 같은 욕구가 채워지는가. 같은 type 안에서만.
 substitute:
-  definition: 같은 욕구를 채우는 다른 상품. 같은 type, 같은 목적(섭취상황 겹침), 같은 규격대여야 한다.
-  snack: {category_level: 1, share: [occasion]}   # 대분류(스낵/비스킷/케이크/초콜릿/캔디) 같고 섭취상황 하나 이상 겹침
-  ramen: {same: [style], share: [occasion]}       # 조리형태 같고 섭취상황 겹침 (국물 ↔ 짜장 대체 금지)
-  # 규격 정책: 순서 속성의 허용 최대 단계 차이. 1,500원 과자 대신 5,000원 박스를 권하지 않는다.
-  max_gap: {price_band: 1, size: 1, spicy: 2}
+  definition: 같은 욕구를 채우는 다른 상품. 같은 type, 같은 목적, 같은 규격대여야 한다.
+  snack: {category_level: 1, share: [occasion]}      # 대분류 같고 구매상황 겹침
+  ramen: {same: [style], share: [occasion]}          # 조리형태 같음 (국물 ↔ 짜장 대체 금지)
+  beverage: {category_level: 2, share: [occasion]}   # 탄산은 탄산끼리, 커피는 커피끼리
+  household: {category_level: 3, same: [spec]}       # 같은 품목 + 규격 일치 (AA ↔ AAA 금지)
+  # 규격 정책: 순서 속성의 허용 최대 단계 차이.
+  #   가격대·용량 1단계 — 1,500원 과자 대신 5,000원 박스를 권하지 않는다
+  #   맵기 2단계 — 불닭 대신 사리곰탕을 권하지 않는다
+  #   당 2단계 — 제로 찾는 손님에게 일반 콜라를 권하지 않는다
+  #   알코올 0단계 — 맥주 대신 소주를 권하지 않는다
+  max_gap: {price_band: 1, size: 1, spicy: 2, sugar: 2, abv: 0}
 
-# 상품간 정책 2 — 보완재: 같이 사면 가치가 커지는가.
+# 상품간 정책 2 — 보완재: 같이 사면 가치가 커지는가. type을 넘나들 수 있다.
 complement:
-  definition: 함께 소비할 때 가치가 커지는 다른 정체성의 상품. 같은 시간대에 먹을 수 있어야 한다.
+  definition: 함께 소비할 때 가치가 커지는 다른 정체성의 상품. 같은 시간대에 쓸 수 있어야 한다.
   forbid_same_identity: true   # 포카칩+수미칩은 보완이 아니라 대체
-  require_overlap: [time]      # 추론된 시간대가 하나도 안 겹치면 보완 아님 (해장 라면 + 술안주)
-  pairs:
+  require_overlap: [time]      # 추론된 시간대가 하나도 안 겹치면 보완 아님. 시간대가 없는 상품(생필품)은 중립
+  pairs:   # 사람이 아는 조합. strength 는 사람이 정한 값
     - {a: R13, b: R07, strength: 0.9, reason: 짜파구리(짜파게티+너구리)}
     - {a: R14, b: R11, strength: 0.6, reason: 불닭 맵기 중화용 순한 국물}
-  rules:   # 가설 수준이라 강도를 낮게 두고 검수로 올린다
+    - {a: R14, b: B10, strength: 0.7, reason: 불닭 + 우유}
+    - {a: S31, b: B10, strength: 0.6, reason: 초코파이 + 우유}
+    - {a: H04, b: H05, strength: 0.9, reason: 칫솔 + 치약}
+    - {a: H08, b: H09, strength: 0.85, reason: 면도기 + 쉐이빙폼}
+  rules:   # 속성 조건으로 만드는 가설. 강도를 낮게 두고 검수로 올린다
+    - name: 안주 스낵 + 맥주
+      a: {type: snack, occasion: 술안주}
+      b: {category: BEV.ALC.BEER}
+      strength: 0.5
+    - name: 야식 라면 + 소주
+      a: {type: ramen, occasion: 야식}
+      b: {category: BEV.ALC.SOJU}
+      strength: 0.4
+    - name: 매운 라면 + 우유
+      a: {type: ramen, spicy: [중, 강, 극강]}
+      b: {category: BEV.MILK}
+      strength: 0.45
+    - name: 라면 + 탄산
+      a: {type: ramen}
+      b: {category: BEV.CARB}
+      strength: 0.35
+    - name: 디저트 과자 + 커피
+      a: {type: snack, occasion: 디저트}
+      b: {category: BEV.COFFEE}
+      strength: 0.45
+    - name: 초코 과자 + 흰우유
+      a: {type: snack, flavor: 초코}
+      b: {category: BEV.MILK.WHITE}
+      strength: 0.45
+    - name: 짠 간식 + 탄산
+      a: {type: snack, occasion: 간식, flavor: 짠맛}
+      b: {category: BEV.CARB}
+      strength: 0.3
+    - name: 해장 라면 + 해장 음료
+      a: {type: ramen, occasion: 해장}
+      b: {category: [BEV.FUNC, BEV.SPORTS]}
+      strength: 0.4
+    - name: 국물 라면 + 막걸리
+      a: {type: ramen, style: 국물}
+      b: {category: BEV.ALC.MAKGEOLLI}
+      strength: 0.35
+    - name: 술 + 숙취해소
+      a: {category: BEV.ALC}
+      b: {category: BEV.FUNC}
+      strength: 0.5
     - name: 매운 라면 뒤 단 디저트
       a: {type: ramen, spicy: [중, 강, 극강]}
       b: {type: snack, occasion: 디저트}
-      strength: 0.35
+      strength: 0.3
     - name: 라면 뒤 입가심
       a: {type: ramen}
       b: {type: snack, occasion: 입가심}
-      strength: 0.3
-    - name: 야식 라면 + 안주 스낵
-      a: {type: ramen, occasion: 야식}
-      b: {type: snack, occasion: 술안주}
       strength: 0.25
+    - name: 외박 세면 키트
+      a: {type: household, occasion: 외박·여행}
+      b: {type: household, occasion: 외박·여행}
+      strength: 0.4
+
+# 상품간 정책 3 — 제한 상품: 어떤 점수·규칙으로도 함께 추천하지 않는 조합.
+restricted:
+  - name: 주류 × 어린이 상품
+    definition: 주류는 어린이 대상 상품과 보완재·콤보로 묶지 않는다.
+    items: {category: BEV.ALC}
+    never_with: {target: 어린이}
 
 # 콤보: 장면(ontology/tpo.yaml scenes)마다 슬롯을 채운 상품 묶음.
 combo:
-  definition: 한 TPO 장면에서 함께 사는 상품 묶음. 장면 TPO에 맞고, 정체성이 겹치지 않고, 예산 안이어야 한다.
+  definition: 한 TPO 장면에서 함께 사는 상품 묶음. 장면 TPO에 맞고, 정체성이 겹치지 않고, 제한 정책을 지키고, 예산 안이어야 한다.
   price: {"~1500": 1200, "1500~2500": 2000, "2500~4000": 3200, "4000~": 5000}   # 가격대 대표가(원)
   distinct_identity: true
   top: 5          # 장면당 콤보 수
