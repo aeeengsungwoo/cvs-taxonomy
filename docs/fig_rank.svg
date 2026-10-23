@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 366" width="960" height="366" font-family="'Pretendard','Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif" role="img" aria-label="1순위 적중률">
+<style>
+  .bg{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.t3{fill:#8a8984}.grid{stroke:#e8e6e1}.axis{stroke:#c9c7c0}
+  .s1{fill:#2a78d6}.s0{fill:#b9b7b0}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.t3{fill:#8f8e88}.grid{stroke:#2e2d2b}.axis{stroke:#4a4945}
+    .s1{fill:#3987e5}.s0{fill:#5c5b56}}
+</style>
+<rect class="bg" width="960" height="366" rx="12"/>
+<text class="t1" x="28" y="44" font-size="24" font-weight="700">1순위 적중률</text>
+<text class="t2" x="28" y="72" font-size="15">손님이 우리가 1순위로 보여 준 상품을 고른 비율 · 상품 118개, 짝수 페르소나 채점</text>
+<line class="grid" x1="200.0" y1="96" x2="200.0" y2="322" stroke-width="1"/>
+<text class="t3" x="200.0" y="342" font-size="14" text-anchor="middle">0%</text>
+<line class="grid" x1="367.5" y1="96" x2="367.5" y2="322" stroke-width="1"/>
+<text class="t3" x="367.5" y="342" font-size="14" text-anchor="middle">25%</text>
+<line class="grid" x1="535.0" y1="96" x2="535.0" y2="322" stroke-width="1"/>
+<text class="t3" x="535.0" y="342" font-size="14" text-anchor="middle">50%</text>
+<line class="grid" x1="702.5" y1="96" x2="702.5" y2="322" stroke-width="1"/>
+<text class="t3" x="702.5" y="342" font-size="14" text-anchor="middle">75%</text>
+<line class="grid" x1="870.0" y1="96" x2="870.0" y2="322" stroke-width="1"/>
+<text class="t3" x="870.0" y="342" font-size="14" text-anchor="middle">100%</text>
+<text class="t1" x="184" y="125.0" font-size="16" font-weight="600" text-anchor="end">우리 추천</text>
+<path class="s1" d="M200.0,104.0 h594.3 a4,4 0 0 1 4,4 v22.0 a4,4 0 0 1 -4,4 h-594.3 z"/>
+<text class="t1" x="808.3" y="125" font-size="16" font-weight="700">89.3%</text>
+<text class="t1" x="184" y="185.0" font-size="16" font-weight="600" text-anchor="end">벡터 유사도순</text>
+<path class="s0" d="M200.0,164.0 h570.9 a4,4 0 0 1 4,4 v22.0 a4,4 0 0 1 -4,4 h-570.9 z"/>
+<text class="t2" x="784.9" y="185" font-size="16" font-weight="400">85.8%</text>
+<text class="t1" x="184" y="245.0" font-size="16" font-weight="600" text-anchor="end">인기순</text>
+<path class="s0" d="M200.0,224.0 h319.6 a4,4 0 0 1 4,4 v22.0 a4,4 0 0 1 -4,4 h-319.6 z"/>
+<text class="t2" x="533.6" y="245" font-size="16" font-weight="400">48.3%</text>
+<text class="t1" x="184" y="305.0" font-size="16" font-weight="600" text-anchor="end">무작위</text>
+<path class="s0" d="M200.0,284.0 h271.4 a4,4 0 0 1 4,4 v22.0 a4,4 0 0 1 -4,4 h-271.4 z"/>
+<text class="t2" x="485.4" y="305" font-size="16" font-weight="400">41.1%</text>
+<line class="axis" x1="200" y1="96" x2="200" y2="322" stroke-width="1"/>
+</svg>
