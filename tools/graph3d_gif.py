@@ -81,7 +81,6 @@ def main():
         for t, ko in TYPE_KO.items():
             dr.ellipse([lx, 52 * SS, lx + 10 * SS, 62 * SS], fill=COLOR[t])
             dr.text((lx + 15 * SS, 48 * SS), ko, font=small, fill=(154, 159, 174)); lx += 70 * SS
-        dr.text((20 * SS, (H - 28) * SS), "클릭하면 직접 돌려 볼 수 있는 3D 페이지가 열립니다", font=small, fill=(154, 159, 174))
         frames.append(img.resize((W, H), Image.LANCZOS))
     # 모든 프레임에 같은 팔레트: 배경·글자 회색과 종류 색을 배경 위 여러 농도로 섞은 색 — 프레임마다 색이 바뀌지 않게
     cols = [BG, (230, 231, 236), (154, 159, 174)] + [tuple(int(BG[i] + (c[i] - BG[i]) * t) for i in range(3))

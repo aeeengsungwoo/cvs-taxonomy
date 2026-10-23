@@ -83,15 +83,17 @@
 
 확장 직후 지표가 크게 떨어진 일도 있었다. 추천이 나빠진 게 아니라 채점이 틀린 것이었다. 일부 보기만 물은 응답에서 안 물은 보기를 "안 골랐다"로 셌다. 응답자가 본 적 없는 새 상품 추천도 오답으로 셌다. 이 두 경우를 채점에서 분리했다. (PR #20, #22)
 
-### 6. 시각화
+### 6. 대체 관계 시각화
 
-**문제.** 상품이 238개가 되자, 한 장에 4분할로 그린 지도는 확대해야 읽혔다.
+**문제.** 상품이 238개가 되자 어떤 상품끼리 서로 대신하는지 평면 지도 한 장으로는 읽기 어려웠다. 이름이 겹치고, 종류가 다른 묶음이 한 화면에 섞였다.
 
-**시도.** 지도를 종류별로 나누고, 옵시디언처럼 돌려 볼 수 있는 3D 그래프를 만들었다. README는 스크립트를 실행하지 못하므로 회전 GIF로 보여 주고, 누르면 3D 페이지가 열리게 했다.
+**시도.** 상품을 점, 대체 관계를 선으로 두고 3차원에 배치했다. 서로 대신할 수 있는 상품끼리 모이고, 과자·라면·음료·생필품은 떨어진다. 점이 클수록 대신할 상품이 많다.
+
+**결과.** 음료 안에서도 물·차, 커피, 탄산, 주류가 따로 모였다. 생필품은 상품당 대체 관계가 2.3개로 과자(5.9)·라면(6.7)보다 훨씬 적다. 건전지·면도기처럼 규격이 맞아야 대신할 수 있는 상품이 많아서다.
 
 [![품절 대체 3D 그래프](docs/product_graph_3d.gif)](https://htmlpreview.github.io/?https://github.com/aeeengsungwoo/cvs-taxonomy/blob/main/docs/product_graph_3d.html)
 
-3D 페이지에서 점을 누르면 그 상품이 품절일 때의 1\~3순위가 나온다. (PR #3, #22)
+(PR #3, #22)
 
 ### 다음 과제
 
@@ -335,7 +337,7 @@ flowchart LR
 
 [![품절 대체 3D 그래프](docs/product_graph_3d.gif)](https://htmlpreview.github.io/?https://github.com/aeeengsungwoo/cvs-taxonomy/blob/main/docs/product_graph_3d.html)
 
-이미지를 누르면 직접 돌려 볼 수 있는 3D 그래프가 열린다. 점을 누르면 품절 시 1\~3순위가 나온다(`python tools/product_graph3d.py`, GIF는 `python tools/graph3d_gif.py`).
+3D 그래프: `python tools/product_graph3d.py` · GIF: `python tools/graph3d_gif.py`
 
 <details>
 <summary>종류별 2D 벡터 지도</summary>
