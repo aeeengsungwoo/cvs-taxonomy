@@ -11,6 +11,7 @@
   python cvs.py admin             관리자 답 반영 (상품쌍 → gold.csv, 정책 문항 → 방향 정책)
   python cvs.py oos 코카콜라      품절 시 대신 권할 상품과 이유 (--also-out, --context weather=더움, --all)
   python cvs.py survey            페르소나 설문 집계 → 기존 라벨과 대조, 품절 추천 precision/recall (out/survey_*.csv)
+  python cvs.py rankeval          추천 지표 P@3 · R@3 · NDCG@3 를 인기순·벡터·무작위 기준선과 비교 → out/rank_eval.csv
   python cvs.py taxofit           택소노미 적합도: 트리 거리가 설문 대체 판단과 맞는가 → out/taxonomy_fit.csv
   python cvs.py graph [--push]    out/graph.cypher, out/edges.csv, out/audit.md 생성 (--push 면 Neo4j에 바로 적재)
                                   정책 충돌 → review/conflicts.csv (decision 칸에 허용 / 유지)
@@ -18,6 +19,7 @@
 import argparse
 import csv
 import itertools
+import hashlib
 import json
 import os
 import sys
@@ -1145,6 +1147,50 @@ def pick_eval(products, attrs, cats, policy, subs, only=None):
     return {"선택률": r(pick, buy), "1순위": r(first, buy), "빈손": r(empty, buy), "헛추천": r(wasted, shown), "응답": buy}
 
 
+def rank_eval(products, attrs, cats, policy, w, k=3):
+    """추천 지표를 기준선과 함께 잰다. 판정·인기도는 홀수 페르소나, 채점은 짝수 페르소나 응답(대신 살 게 있는 응답만).
+    모든 방법은 그 응답자가 실제로 본 보기 안에서만 고른다 — 보기 밖 상품은 받았을지 알 수 없어서.
+    Precision@k = 맞힌 수 / k (보여 준 수 기준은 '보인 것 중'), Recall@k = 맞힌 수 / 그 사람이 받은 보기 수,
+    NDCG@k = 맞힌 것이 위에 있을수록 1에 가까움, 1순위 = 1순위를 고름, 선택률 = 하나라도 고름."""
+    odd, even = ({f"P{i:02d}" for i in range(s, 31, 2)} for s in (1, 2))
+    pop = {}
+    for a in survey_answers(odd):
+        for b in a["accept"]:
+            pop[b] = pop.get(b, 0) + 1
+    subs, *_ = build_edges(products, attrs, policy, w, load_gold(), 5, 0.55, survey_labels(policy, odd))
+    ours = {pid: [b for b, *_ in oos_recommend(pid, products, attrs, cats, policy, subs)] for pid in products}
+    rand = lambda pid, b, seed: hashlib.md5(f"{seed}:{pid}:{b}".encode()).hexdigest()
+    methods = {
+        "우리 추천": lambda pid, opts, seed: [b for b in ours.get(pid, []) if b in opts],
+        "인기순": lambda pid, opts, seed: sorted(opts, key=lambda b: (-pop.get(b, 0), b))[:k],
+        "벡터 유사도순": lambda pid, opts, seed: sorted(opts, key=lambda b: -score(products[pid], products[b], attrs, w))[:k],
+        "무작위": lambda pid, opts, seed: sorted(opts, key=lambda b: rand(pid, b, seed))[:k],
+    }
+    # 같은 개수: 우리가 그 문항에서 보여 준 수(0~3개)만큼만 보여 주는 기준선 — '덜 보여 줘서 정확한' 효과를 걷어 낸다
+    n_ours = lambda pid, opts: len(methods["우리 추천"](pid, opts, 0))
+    methods["인기순 (같은 개수)"] = lambda pid, opts, seed: methods["인기순"](pid, opts, seed)[:n_ours(pid, opts)]
+    methods["벡터 유사도순 (같은 개수)"] = lambda pid, opts, seed: methods["벡터 유사도순"](pid, opts, seed)[:n_ours(pid, opts)]
+    dcg = lambda hits: sum(h / np.log2(i + 2) for i, h in enumerate(hits))
+    rows = [a for a in survey_answers(even) if not a["skip"] and a["accept"] and a["q"] in products]
+    out = {}
+    for name, pick in methods.items():
+        m = {"P": [], "P보인": [], "R": [], "NDCG": [], "1순위": [], "선택률": [], "보인 수": []}
+        for seed in range(20 if name == "무작위" else 1):
+            for a in rows:
+                shown = pick(a["q"], sorted(a["shown"] - {a["q"]}), seed)[:k]
+                hits = [b in a["accept"] for b in shown]
+                m["P"].append(sum(hits) / k)
+                m["R"].append(sum(hits) / len(a["accept"]))
+                m["NDCG"].append(dcg(hits) / dcg([1] * min(k, len(a["accept"]))))
+                m["1순위"].append(bool(hits) and hits[0])
+                m["선택률"].append(any(hits))
+                m["보인 수"].append(len(shown))
+                if shown:
+                    m["P보인"].append(sum(hits) / len(shown))
+        out[name] = {key: round(float(np.mean(v)), 3) for key, v in m.items()}
+    return out, len(rows)
+
+
 def survey_eval(products, attrs, cats, policy, subs, pairs, qs):
     """품절 추천이 설문 다수와 얼마나 맞나. 추천은 여러 개라 precision/recall 로 잰다.
     precision = 권한 것 중 응답자 과반이 '대신 산다'인 비율, recall = 과반이 받아들인 보기 중 권한 비율,
@@ -1236,6 +1282,16 @@ def cmd_taxofit(args):
     print(f"중분류를 넘는데 설문 O 인 노드 쌍 {len(rows)}개 → out/taxonomy_fit.csv (경계 재검토 후보)")
     for r in rows[:6]:
         print(f"  {r[0]} ↔ {r[1]}: O {r[2]}/{r[3]}" + (f" (묶음: {r[5]})" if r[5] else ""))
+
+
+def cmd_rankeval(args):
+    attrs, cats, products, _, policy, _ = load_context()
+    out, n = rank_eval(products, attrs, cats, policy, load_weights())
+    print(f"짝수 페르소나 응답 {n}건 · 각 응답자가 본 보기 안에서 3개 고르기 (판정·인기도는 홀수 페르소나)")
+    print(f"{'방법':<16} P@3   보인것중 R@3   NDCG@3 1순위 선택률 보인수")
+    for name, m in out.items():
+        print(f"{name:<16} {m['P']:.3f} {m['P보인']:.3f}  {m['R']:.3f} {m['NDCG']:.3f}  {m['1순위']:.3f} {m['선택률']:.3f} {m['보인 수']:.2f}")
+    write_csv("out/rank_eval.csv", ["method", *out["우리 추천"]], [[k, *v.values()] for k, v in out.items()])
 
 
 def cmd_survey(args):
@@ -1363,6 +1419,7 @@ def main():
     op.set_defaults(fn=cmd_oos)
     sub.add_parser("survey").set_defaults(fn=cmd_survey)
     sub.add_parser("taxofit").set_defaults(fn=cmd_taxofit)
+    sub.add_parser("rankeval").set_defaults(fn=cmd_rankeval)
     gp = sub.add_parser("graph")
     gp.add_argument("--k", type=int, default=5, help="상품당 대체 간선 최대 수")
     gp.add_argument("--min-score", type=float, default=0.55, help="미검수 대체 간선의 최소 모델 점수")

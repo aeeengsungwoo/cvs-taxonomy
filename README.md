@@ -59,7 +59,18 @@ python cvs.py oos "코카콜라 500ml"
 | 살 게 있는데 아무것도 안 보여 줌 (빈손) | 3.6% |
 | 보여 준 것 중 안 고른 것 (헛추천) | 13.8% |
 
-순위별 과반 수용은 1순위 96% · 2순위 93% · 3순위 82%다. 3순위는 확신이 낮으니 흐리게 표시하거나 "이것도 있어요" 정도로 약하게 보여 주는 것을 권한다 → [`docs/survey.md`](docs/survey.md#3개-보여-주기-기준-평가).
+순위별 과반 수용은 1순위 96% · 2순위 93% · 3순위 82%다.
+
+인기순·벡터 유사도순과 같은 조건(응답자가 본 보기 안에서 3개)으로 비교했다([`docs/rank_eval.md`](docs/rank_eval.md)).
+
+| 방법 | P@3 | 보인 것 중 맞음 | R@3 | NDCG@3 | 1순위 |
+|---|---|---|---|---|---|
+| **우리 추천** (평균 2.08개) | 0.603 | **0.889** | 0.711 | **0.805** | **0.893** |
+| 인기순 | 0.490 | 0.490 | 0.553 | 0.571 | 0.483 |
+| 벡터 유사도순 | 0.643 | 0.643 | 0.762 | 0.827 | 0.858 |
+| 벡터 유사도순 (우리와 같은 개수) | 0.544 | 0.795 | 0.627 | 0.724 | 0.839 |
+
+인기순보다 1순위 적중이 두 배 가깝다. 같은 개수로 보여 주면 벡터보다도 낫다. 3개를 꽉 채우는 벡터가 P@3은 더 높은데, 이는 우리가 확신이 없으면 비워 두기 때문이다(권할 대체 없음 47건). 3순위는 확신이 낮으니 흐리게 표시하거나 "이것도 있어요" 정도로 약하게 보여 주는 것을 권한다 → [`docs/survey.md`](docs/survey.md#3개-보여-주기-기준-평가).
 
 ### 한계와 다음 단계
 
@@ -306,6 +317,7 @@ python cvs.py admin           #    관리자 답 반영 (상품쌍 → gold.csv,
 python cvs.py survey          #    페르소나 설문 판정·검증·평가 → out/survey_*.csv (docs/survey.md)
 python tools/survey_queue.py  #    선별 설문 대기열: 새 상품 + 확인 안 된 1~3순위만, 관련 페르소나 5~10명 → survey/queue.json
 python tools/survey_merge.py <라운드> <응답.json>...  # 선별 응답을 survey/answers/ 에 덧붙임
+python cvs.py rankeval        #    추천 지표 P@3 · R@3 · NDCG@3 vs 인기순 · 벡터 · 무작위 → out/rank_eval.csv (docs/rank_eval.md)
 python cvs.py taxofit         #    택소노미 적합도 (트리 거리 ↔ 설문 대체) → out/taxonomy_fit.csv (docs/limits_and_next.md)
 python cvs.py oos --all       #    전 상품 품절 대체 → out/oos_recommendations.csv
 python cvs.py graph           # 6. out/graph.cypher · out/edges.csv · out/audit.md
@@ -356,6 +368,7 @@ MATCH (c:Combo)-[:FOR]->(:Scene {id:'rainy_commute'}), (c)-[i:INCLUDES]->(p) RET
 | `out/esci_policy_check.csv` · `out/esci_samples.csv` | ESCI 사람 라벨로 본 정책별 E/S/C/I 분포 · 샘플 |
 | `survey/personas.yaml` · `survey/questions.json` · `survey/answers/` | 설문 응답자 30명 · 품절 문항 115개 · 응답 |
 | `out/survey_pairs.csv` · `out/survey_features.csv` · `out/survey_eval.csv` | 설문 판정 · 차이 유형별 수용률 · 추천 vs 설문 평가 |
+| `out/rank_eval.csv` | 추천 지표와 기준선 비교 |
 | `out/taxonomy_fit.csv` | 중분류를 넘는데 설문 O인 노드 쌍 (대체용 경계 재검토 후보) |
 | `out/oos_recommendations.csv` | 상품별 품절 시 대신 권할 상품 3개와 이유 |
 | `out/product_vectors.csv` · `docs/product_map.svg` | 상품 벡터 지도 좌표·가장 가까운 3개 · 지도 |
