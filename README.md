@@ -366,9 +366,7 @@ flowchart LR
 > 코카콜라를 사러 온 손님에게 제로콜라를 권하면 잘된 추천인가? — **방향에 따라 다르다.**
 > 코카콜라 → 제로는 잃는 게 당뿐이라 감점 허용, 제로 → 코카콜라는 제로를 고른 이유를 깨므로 금지.
 
-[![품절 대체 3D 그래프](docs/product_graph_3d.gif)](https://htmlpreview.github.io/?https://github.com/aeeengsungwoo/cvs-taxonomy/blob/main/docs/product_graph_3d.html)
-
-3D 그래프: `python tools/product_graph3d.py` · GIF: `python tools/graph3d_gif.py`
+3D 그래프는 [개발 과정 6](#6-대체-관계-시각화) 참고 (`python tools/product_graph3d.py` · GIF: `python tools/graph3d_gif.py`)
 
 <details>
 <summary>종류별 2D 벡터 지도</summary>
