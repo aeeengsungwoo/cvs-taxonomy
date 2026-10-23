@@ -191,14 +191,14 @@ S20,S30,0,claude,크래커 vs 초코 슈볼
 S21,S25,0,claude,크래커 vs 버터 쿠키
 S21,S29,0,claude,크래커 vs 초코 샌드
 S22,S29,0,claude,크래커 vs 초코 샌드
-S22,S25,1,claude,버터 풍미 과자
+S22,S25,0,claude,"크래커 vs 버터 쿠키 (아이비↔버터링 X와 기준 통일, 2차 점검)"
 S25,S29,0,claude,버터 vs 초코
 S26,S29,0,claude,통밀 vs 초코 샌드
 S26,S22,1,claude,담백 비스킷
 S27,S24,0,claude,웨하스 vs 초코 쿠키
 S27,S23,0,claude,웨하스 vs 초코 쿠키
 S28,S25,0,claude,초코 스틱 vs 버터 쿠키
-S30,S23,1,claude,초코 한입 과자
+S30,S23,0,claude,"슈볼 vs 쿠키 (촉촉한초코칩↔홈런볼 X와 기준 통일, 2차 점검)"
 S30,S22,0,claude,초코 vs 크래커
 R01,R09,0,claude,소고기 얼큰 vs 짬뽕
 R07,R01,1,claude,얼큰 봉지라면
@@ -225,3 +225,8 @@ R16,R22,1,claude,얼큰 국물 큰컵
 R16,R21,1,claude,얼큰 국물 큰컵
 R17,R22,0,claude,고소한 참깨 vs 새콤한 김치
 R17,R21,0,claude,고소한 참깨 vs 새콤한 김치
+R20,R23,1,claude,치즈 들어간 매운 볶음 큰컵
+R21,R22,1,claude,김치 국물 큰컵 (오모리 라인 후보가 없을 때 차선)
+S06,S07,0,claude,치즈 감자 vs 콘스프 단짠
+S11,S17,0,claude,매콤달콤 vs 꿀 단맛
+S13,S19,0,claude,단 시리얼 과자 vs 짠 안주

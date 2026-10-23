@@ -44,7 +44,7 @@ attributes:
     name: 유탕여부
     depth: 1
     type: single
-    weight: 1.0
+    weight: 0      # 이전 1.0 — 속성 영향도: 미미. 카테고리·제조방식과 정보 중복. 정의·데이터는 남김
     applies_to: [snack, ramen]
     definition: 기름에 튀기는 공정을 거쳤는가. 기름진 풍미·칼로리 인식에 영향. 라면은 면 기준.
     values:
@@ -55,7 +55,7 @@ attributes:
     name: 제조방식
     depth: 1
     type: single
-    weight: 1.5
+    weight: 0      # 이전 1.5 — 속성 영향도: 노이즈(빼면 +0.010). 대체는 튀김·구움보다 맛·식감이 가름. 정의·데이터는 남김
     applies_to: [snack]
     definition: 최종 식감을 결정하는 핵심 공정.
     values:
@@ -170,7 +170,7 @@ attributes:
     name: 국물베이스
     depth: 2
     type: single
-    weight: 1.5
+    weight: 0      # 이전 1.5 — 속성 영향도: 노이즈(빼면 +0.027). 손님은 소고기·된장·해물 베이스를 구분하지 않고 얼큰 국물이면 대체함. 정의·데이터는 남김
     applies_to: [ramen]
     definition: 국물·소스 맛의 바탕이 되는 재료. 국물 없는 라면은 소스 베이스.
     values:
@@ -188,7 +188,7 @@ attributes:
     name: 면
     depth: 2
     type: single
-    weight: 1.0
+    weight: 0      # 이전 1.0 — 속성 영향도: 미미. 정의·데이터는 남김
     applies_to: [ramen]
     definition: 면의 굵기·종류.
     values:
@@ -295,7 +295,7 @@ attributes:
     name: 카페인
     depth: 2
     type: ordinal
-    weight: 1.0
+    weight: 0      # 이전 1.0 — 속성 영향도: 미미. 카테고리(커피·에너지)에 이미 담김. 정의·데이터는 남김
     applies_to: [beverage]
     definition: 카페인 함량 구간. 각성 목적 구매를 가른다.
     values:
