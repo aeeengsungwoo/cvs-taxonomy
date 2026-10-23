@@ -1,0 +1,56 @@
+# 추천 정책. 점수(유사도)는 '얼마나 비슷한가'만 말하고, 정책은 '사람이라면 이걸 추천하겠는가'를 막는다.
+# 정책은 하드 조건이다 — 점수가 아무리 높아도 정책을 어기면 간선을 만들지 않는다(튀는 추천 방지).
+# 사람이 검수 O 한 쌍이 정책에 걸리면 간선을 만들지 않고 out/audit.md 의 '정책 충돌'에 올린다
+# → 정책이 틀렸는지 검수가 틀렸는지 사람이 정한다.
+# 조건 문법(matches): {속성: 값 또는 [값...]} AND 결합. 카테고리는 접두어 일치(CHO → CHO.BAR).
+
+# 아이덴티티: 상품이 '무엇'인가를 가르는 키. 같은 키 = 같은 정체성 = 손님 입장에서 같은 종류.
+identity:
+  snack: {category_level: 2}   # 예: SNK.CHIP / BIS.COOKIE / CHO.BAR
+  ramen: {attrs: [style]}      # 국물 / 짜장 / 볶음 / 비빔
+  definition: >-
+    손님이 '같은 종류'라고 느끼는 단위. 과자는 카테고리 2단계(칩·쿠키·판초콜릿…),
+    라면은 조리형태(국물·짜장·볶음·비빔). 보완재·콤보는 서로 다른 정체성끼리만 묶는다.
+
+# 상품간 정책 1 — 대체재: 이게 없을 때 저걸 사도 같은 욕구가 채워지는가.
+substitute:
+  definition: 같은 욕구를 채우는 다른 상품. 같은 type, 같은 목적(섭취상황 겹침), 같은 규격대여야 한다.
+  snack: {category_level: 1, share: [occasion]}   # 대분류(스낵/비스킷/케이크/초콜릿/캔디) 같고 섭취상황 하나 이상 겹침
+  ramen: {same: [style], share: [occasion]}       # 조리형태 같고 섭취상황 겹침 (국물 ↔ 짜장 대체 금지)
+  # 규격 정책: 순서 속성의 허용 최대 단계 차이. 1,500원 과자 대신 5,000원 박스를 권하지 않는다.
+  max_gap: {price_band: 1, size: 1, spicy: 2}
+
+# 상품간 정책 2 — 보완재: 같이 사면 가치가 커지는가.
+complement:
+  definition: 함께 소비할 때 가치가 커지는 다른 정체성의 상품. 같은 시간대에 먹을 수 있어야 한다.
+  forbid_same_identity: true   # 포카칩+수미칩은 보완이 아니라 대체
+  require_overlap: [time]      # 추론된 시간대가 하나도 안 겹치면 보완 아님 (해장 라면 + 술안주)
+  pairs:
+    - {a: R13, b: R07, strength: 0.9, reason: 짜파구리(짜파게티+너구리)}
+    - {a: R14, b: R11, strength: 0.6, reason: 불닭 맵기 중화용 순한 국물}
+  rules:   # 가설 수준이라 강도를 낮게 두고 검수로 올린다
+    - name: 매운 라면 뒤 단 디저트
+      a: {type: ramen, spicy: [중, 강, 극강]}
+      b: {type: snack, occasion: 디저트}
+      strength: 0.35
+    - name: 라면 뒤 입가심
+      a: {type: ramen}
+      b: {type: snack, occasion: 입가심}
+      strength: 0.3
+    - name: 야식 라면 + 안주 스낵
+      a: {type: ramen, occasion: 야식}
+      b: {type: snack, occasion: 술안주}
+      strength: 0.25
+
+# 콤보: 장면(ontology/tpo.yaml scenes)마다 슬롯을 채운 상품 묶음.
+combo:
+  definition: 한 TPO 장면에서 함께 사는 상품 묶음. 장면 TPO에 맞고, 정체성이 겹치지 않고, 예산 안이어야 한다.
+  price: {"~1500": 1200, "1500~2500": 2000, "2500~4000": 3200, "4000~": 5000}   # 가격대 대표가(원)
+  distinct_identity: true
+  top: 5          # 장면당 콤보 수
+  max_reuse: 2    # 한 상품이 한 장면의 상위 콤보에 최대 몇 번 등장하나 (다양성)
+
+# 트렌드: data/trends.csv (판매·검색 급상승 등 외부 신호). 트렌드도 정책을 통과한 것만 추천한다.
+trend:
+  definition: 특정 기간에 판매·검색이 평소보다 뜬 상품. TPO 적합성·정책을 통과해야 추천에 쓰인다.
+  min_score: 0.3

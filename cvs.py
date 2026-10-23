@@ -1,10 +1,11 @@
-"""편의점 상품 텍소노미 → 대체/보완재 점수 → 인간 검수 루프 → 그래프DB(Neo4j) 적재.
+"""우리동네GS 추천용 온톨로지: 텍소노미 → TPO 추론 → 정책(상품간·규격·속성·아이덴티티)으로 튀는 추천 차단
+→ 대체재·보완재·콤보·트렌드 → 인간 검수 루프 → 그래프DB(Neo4j) 적재.
 
   python cvs.py validate          정의 누락·처음 보는 속성값 점검 (review/new_values.csv)
   python cvs.py sweep             뎁스·가중치 튜닝 → config/weights.yaml
   python cvs.py review export     검수할 대체재 후보 → review/queue.csv
   python cvs.py review import     검수 끝난 queue → review/gold.csv
-  python cvs.py graph [--push]    out/graph.cypher, out/edges.csv 생성 (--push 면 Neo4j에 바로 적재)
+  python cvs.py graph [--push]    out/graph.cypher, out/edges.csv, out/audit.md 생성 (--push 면 Neo4j에 바로 적재)
 """
 import argparse
 import csv
@@ -212,13 +213,14 @@ def cmd_sweep(args):
 
 
 def cmd_review(args):
-    attrs, cats = load_taxonomy()
-    products, _ = load_products(attrs, cats)
+    attrs, cats, products, _, policy, _ = load_context()
     header = ["anchor", "anchor_name", "candidate", "candidate_name", "score", "verdict", "note"]
     if args.action == "export":
         gold, w, seen, rows = load_gold(), load_weights(), set(), []
         for pid in products:
-            for sc, q in ranked(products, attrs, w, pid)[:args.k]:
+            allowed = [(sc, q) for sc, q in ranked(products, attrs, w, pid)
+                       if not substitute_violations(products[pid], products[q], attrs, policy)]  # 정책 차단 쌍은 검수할 필요 없음
+            for sc, q in allowed[:args.k]:
                 pair = frozenset((pid, q))
                 if label_of(gold, pid, q) is None and pair not in seen:
                     seen.add(pair)
@@ -237,6 +239,7 @@ def cmd_review(args):
 
 
 def matches(p, cond):
+    """조건 {속성: 값 또는 [값...]} AND 결합. 카테고리는 접두어 일치(CHO → CHO.BAR)."""
     for key, want in cond.items():
         want = want if isinstance(want, list) else [want]
         if key == "type":
@@ -245,10 +248,99 @@ def matches(p, cond):
             continue
         v = p["attrs"].get(key)
         have = v if isinstance(v, frozenset) else {v}
-        if not have & set(want):
+        if not any(h == x or (isinstance(h, str) and h.startswith(f"{x}.")) for h in have for x in want):
             return False
     return True
 
+
+# ── 온톨로지: TPO 추론 · 정책 ─────────────────────────────────────
+
+def load_ontology():
+    return read_yaml("ontology/policy.yaml"), read_yaml("ontology/tpo.yaml")
+
+
+def infer_tpo(products, tpo):
+    """속성 → TPO 추론. exclude 는 어떤 규칙에서 붙었든 지운다."""
+    for p in products.values():
+        fits, excl = {}, {}
+        for r in tpo["rules"]:
+            if matches(p, r["when"]):
+                for dim, vals in r.get("then", {}).items():
+                    fits.setdefault(dim, set()).update(vals)
+                for dim, vals in r.get("exclude", {}).items():
+                    excl.setdefault(dim, set()).update(vals)
+        p["tpo"] = {d: v - excl.get(d, set()) for d, v in fits.items()}
+        p["tpo_excl"] = excl
+
+
+def fits_scene(p, scene_tpo):
+    """장면 TPO에 맞는가. 상품에 그 차원이 없으면 중립(통과), 제외된 값이면 탈락."""
+    for dim, val in scene_tpo.items():
+        if val in p["tpo_excl"].get(dim, ()) or (dim in p["tpo"] and val not in p["tpo"][dim]):
+            return False
+    return True
+
+
+def cat_prefix(p, level):
+    return ".".join(p["attrs"].get("category", "").split(".")[:level])
+
+
+def as_set(v):
+    return v if isinstance(v, frozenset) else {v}
+
+
+def identity(p, policy):
+    rule = policy["identity"][p["type"]]
+    key = [p["type"]]
+    if "category_level" in rule:
+        key.append(cat_prefix(p, rule["category_level"]))
+    key += [p["attrs"].get(a) for a in rule.get("attrs", [])]
+    return tuple(key)
+
+
+def substitute_violations(p, q, attrs, policy):
+    """대체재 하드 정책 위반 사유 목록. 비어 있으면 통과. 결측 값은 판단 보류(위반 아님)."""
+    if p["type"] != q["type"]:
+        return ["상품간: type 다름"]
+    rule, out = policy["substitute"][p["type"]], []
+    if "category_level" in rule and cat_prefix(p, rule["category_level"]) != cat_prefix(q, rule["category_level"]):
+        out.append("아이덴티티: 대분류 다름")
+    for aid in rule.get("same", []):
+        a, b = p["attrs"].get(aid), q["attrs"].get(aid)
+        if a is not None and b is not None and a != b:
+            out.append(f"아이덴티티: {attrs[aid]['name']} 다름({a}/{b})")
+    for aid in rule.get("share", []):
+        a, b = p["attrs"].get(aid), q["attrs"].get(aid)
+        if a is not None and b is not None and not as_set(a) & as_set(b):
+            out.append(f"상품간: {attrs[aid]['name']} 겹침 없음")
+    for aid, gap in policy["substitute"]["max_gap"].items():
+        a, b = p["attrs"].get(aid), q["attrs"].get(aid)
+        if a is not None and b is not None:
+            order = list(attrs[aid]["values"])
+            if abs(order.index(a) - order.index(b)) > gap:
+                out.append(f"규격: {attrs[aid]['name']} {a}→{b}")
+    return out
+
+
+def complement_violations(p, q, policy):
+    rule, out = policy["complement"], []
+    if rule.get("forbid_same_identity") and identity(p, policy) == identity(q, policy):
+        out.append("아이덴티티: 같은 정체성(보완 아닌 대체)")
+    for dim in rule.get("require_overlap", []):
+        if dim in p["tpo"] and dim in q["tpo"] and not p["tpo"][dim] & q["tpo"][dim]:
+            out.append(f"TPO: {dim} 겹침 없음")
+    return out
+
+
+def load_context():
+    attrs, cats = load_taxonomy()
+    products, issues = load_products(attrs, cats)
+    policy, tpo = load_ontology()
+    infer_tpo(products, tpo)
+    return attrs, cats, products, issues, policy, tpo
+
+
+# ── 간선 ──────────────────────────────────────────────────────────
 
 def edge_strength(model, label):
     """간선 강도. 검수 O = 0.5 바닥 보장, 검수 X = 간선 삭제, 미검수 = 모델 점수 20% 할인."""
@@ -259,39 +351,101 @@ def edge_strength(model, label):
     return round(0.8 * model, 3), "unreviewed"
 
 
-def build_edges(products, attrs, w, gold, k, min_score):
-    subs = {}
+def build_edges(products, attrs, policy, w, gold, k, min_score):
+    """반환: 대체 간선, 보완 간선, 정책 차단 목록(튀는 추천), 정책 충돌(검수 O인데 정책 위반)."""
+    subs, blocked, conflicts = {}, [], []
     pairs = {tuple(sorted(pair)) for pair, lab in gold.items() if lab == 1}
     for pid in products:
         pairs |= {tuple(sorted((pid, q))) for sc, q in ranked(products, attrs, w, pid)[:k] if sc >= min_score}
-    for a, b in pairs:
+    for a, b in sorted(pairs):
         model = score(products[a], products[b], attrs, w)
-        strength, review = edge_strength(model, label_of(gold, a, b))
+        label = label_of(gold, a, b)
+        why = substitute_violations(products[a], products[b], attrs, policy)
+        if why:
+            (conflicts if label == 1 else blocked).append(("SUBSTITUTE", a, b, round(model, 3), " · ".join(why)))
+            continue
+        strength, review = edge_strength(model, label)
         if strength is not None:
             subs[(a, b)] = {"strength": strength, "model_score": round(model, 3), "review": review}
-    comps = {}
-    rules = read_yaml("config/complement_rules.yaml")
-    for r in rules.get("pairs", []):
-        comps[(r["a"], r["b"])] = {"strength": r["strength"], "reason": r["reason"], "source": "pair"}
-    for r in rules.get("rules", []):
+    comps, cand = {}, {}
+    rule = policy["complement"]
+    for r in rule.get("pairs", []):
+        cand[(r["a"], r["b"])] = {"strength": r["strength"], "reason": r["reason"], "source": "pair"}
+    for r in rule.get("rules", []):
         for a in (p for p in products.values() if matches(p, r["a"])):
             for b in (p for p in products.values() if matches(p, r["b"]) and p["id"] != a["id"]):
-                cur = comps.get((a["id"], b["id"]))
+                cur = cand.get((a["id"], b["id"]))
                 if cur is None or cur["strength"] < r["strength"]:
-                    comps[(a["id"], b["id"])] = {"strength": r["strength"], "reason": r["name"], "source": "rule"}
-    return subs, comps
+                    cand[(a["id"], b["id"])] = {"strength": r["strength"], "reason": r["name"], "source": "rule"}
+    for (a, b), e in cand.items():
+        why = complement_violations(products[a], products[b], policy)
+        if why:
+            (conflicts if e["source"] == "pair" else blocked).append(("COMPLEMENT", a, b, e["strength"], " · ".join(why)))
+        else:
+            comps[(a, b)] = e
+    return subs, comps, blocked, conflicts
 
 
-def to_cypher(products, attrs, cats, subs, comps, w):
+def build_combos(products, policy, tpo, comps):
+    """장면별 콤보. 슬롯 후보 = 슬롯 조건 + 장면 TPO 적합. 정체성 중복·예산 초과 조합은 버린다.
+    점수 = 상품쌍 궁합 평균. 궁합 = 보완 간선 강도, 없으면 시간대 자카드 × 0.3(같이 먹을 수는 있음)."""
+    cfg, price = policy["combo"], policy["combo"]["price"]
+
+    def compat(p, q):
+        e = comps.get((p["id"], q["id"])) or comps.get((q["id"], p["id"]))
+        if e:
+            return e["strength"]
+        tp, tq = p["tpo"].get("time", set()), q["tpo"].get("time", set())
+        return 0.3 * len(tp & tq) / len(tp | tq) if tp | tq else 0.0
+
+    out = {}
+    for sc in tpo["scenes"]:
+        slots = [[p for p in products.values() if matches(p, s["cond"]) and fits_scene(p, sc["tpo"])] for s in sc["slots"]]
+        combos = []
+        for items in itertools.product(*slots):
+            ids = {p["id"] for p in items}
+            idents = {identity(p, policy) for p in items}
+            if len(ids) < len(items) or (cfg["distinct_identity"] and len(idents) < len(items)):
+                continue
+            if any(complement_violations(p, q, policy) for p, q in itertools.combinations(items, 2)):
+                continue
+            total = sum(price[p["attrs"]["price_band"]] for p in items)
+            if total > sc["budget"]:
+                continue
+            pairs = list(itertools.combinations(items, 2))
+            combos.append((round(sum(compat(p, q) for p, q in pairs) / len(pairs), 3), total, items))
+        combos.sort(key=lambda c: (-c[0], c[1]))
+        picked, used = [], {}
+        for c in combos:
+            if all(used.get(p["id"], 0) < cfg["max_reuse"] for p in c[2]):
+                picked.append(c)
+                for p in c[2]:
+                    used[p["id"]] = used.get(p["id"], 0) + 1
+            if len(picked) == cfg["top"]:
+                break
+        out[sc["id"]] = picked
+    return out
+
+
+def load_trends(products, policy):
+    path = ROOT / "data/trends.csv"
+    if not path.exists():
+        return []
+    return [r for r in read_csv("data/trends.csv")
+            if r["product_id"] in products and float(r["score"]) >= policy["trend"]["min_score"]]
+
+
+# ── 출력 ──────────────────────────────────────────────────────────
+
+def to_cypher(products, attrs, cats, policy, tpo, subs, comps, combos, trends, w):
     q = lambda v: json.dumps(v, ensure_ascii=False)  # Cypher 문자열 리터럴로도 유효
-    out = [
-        "CREATE CONSTRAINT product_id IF NOT EXISTS FOR (n:Product) REQUIRE n.id IS UNIQUE;",
-        "CREATE CONSTRAINT category_id IF NOT EXISTS FOR (n:Category) REQUIRE n.id IS UNIQUE;",
-        "CREATE CONSTRAINT attribute_id IF NOT EXISTS FOR (n:Attribute) REQUIRE n.id IS UNIQUE;",
-        "CREATE CONSTRAINT attrvalue_key IF NOT EXISTS FOR (n:AttrValue) REQUIRE n.key IS UNIQUE;",
-        "// 재적재 시 이전 추천 간선만 지운다(노드·다른 관계는 그대로).",
-        "MATCH ()-[r:SUBSTITUTE|COMPLEMENT]->() DELETE r;",
-    ]
+    pmatch = lambda var, pid: f"(%s:Product {{id: {q(pid)}}})" % var
+    out = [f"CREATE CONSTRAINT {n.lower()}_{k} IF NOT EXISTS FOR (n:{n}) REQUIRE n.{k} IS UNIQUE;"
+           for n, k in [("Product", "id"), ("Category", "id"), ("Attribute", "id"), ("AttrValue", "key"),
+                        ("TPO", "key"), ("Scene", "id"), ("Combo", "id"), ("Policy", "id"), ("Trend", "period")]]
+    out += ["// 재적재 시 추천 결과(간선·콤보)만 지우고 다시 만든다. 상품·텍소노미 노드는 MERGE.",
+            "MATCH ()-[r:SUBSTITUTE|COMPLEMENT|IN_TREND]->() DELETE r;",
+            "MATCH (c:Combo) DETACH DELETE c;"]
     for c, n in cats.items():
         out.append(f"MERGE (c:Category {{id: {q(c)}}}) SET c.name = {q(n['name'])}, c.definition = {q(n['definition'])};")
         if n["parent"]:
@@ -305,31 +459,84 @@ def to_cypher(products, attrs, cats, subs, comps, w):
         key = f"{aid}={v}"
         out.append(f"MERGE (v:AttrValue {{key: {q(key)}}}) SET v.attr = {q(aid)}, v.value = {q(v)}, v.definition = {q(d)};")
         out.append(f"MATCH (a:Attribute {{id: {q(aid)}}}), (v:AttrValue {{key: {q(key)}}}) MERGE (a)-[:HAS_VALUE]->(v);")
+    for dim, d in tpo["dimensions"].items():
+        for v, vd in d["values"].items():
+            out.append(f"MERGE (t:TPO {{key: {q(f'{dim}={v}')}}}) SET t.dim = {q(dim)}, t.dim_name = {q(d['name'])}, "
+                       f"t.value = {q(v)}, t.definition = {q(vd['definition'])};")
+    for pid, kind in [("identity", "아이덴티티"), ("substitute", "대체재"), ("complement", "보완재"), ("combo", "콤보"), ("trend", "트렌드")]:
+        out.append(f"MERGE (x:Policy {{id: {q(pid)}}}) SET x.name = {q(kind)}, x.definition = {q(policy[pid]['definition'])};")
     for p in products.values():
-        out.append(f"MERGE (p:Product {{id: {q(p['id'])}}}) SET p.name = {q(p['name'])}, p.type = {q(p['type'])};")
+        out.append(f"MERGE {pmatch('p', p['id'])} SET p.name = {q(p['name'])}, p.type = {q(p['type'])}, "
+                   f"p.identity = {q('/'.join(str(x) for x in identity(p, policy)))};")
         for aid, v in p["attrs"].items():
             if attrs[aid]["type"] == "tree":
-                out.append(f"MATCH (p:Product {{id: {q(p['id'])}}}), (c:Category {{id: {q(v)}}}) MERGE (p)-[:IN_CATEGORY]->(c);")
+                out.append(f"MATCH {pmatch('p', p['id'])}, (c:Category {{id: {q(v)}}}) MERGE (p)-[:IN_CATEGORY]->(c);")
                 continue
-            for x in (sorted(v) if isinstance(v, frozenset) else [v]):
-                out.append(f"MATCH (p:Product {{id: {q(p['id'])}}}), (v:AttrValue {{key: {q(f'{aid}={x}')}}}) MERGE (p)-[:HAS_ATTR]->(v);")
+            for x in sorted(as_set(v)):
+                out.append(f"MATCH {pmatch('p', p['id'])}, (v:AttrValue {{key: {q(f'{aid}={x}')}}}) MERGE (p)-[:HAS_ATTR]->(v);")
+        for dim, vals in p["tpo"].items():
+            for v in sorted(vals):
+                out.append(f"MATCH {pmatch('p', p['id'])}, (t:TPO {{key: {q(f'{dim}={v}')}}}) MERGE (p)-[:FITS]->(t);")
+        for dim, vals in p["tpo_excl"].items():
+            for v in sorted(vals):
+                out.append(f"MATCH {pmatch('p', p['id'])}, (t:TPO {{key: {q(f'{dim}={v}')}}}) MERGE (p)-[:AVOIDS]->(t);")
     for (a, b), e in subs.items():
-        out.append(f"MATCH (a:Product {{id: {q(a)}}}), (b:Product {{id: {q(b)}}}) CREATE (a)-[:SUBSTITUTE {{strength: {e['strength']}, "
+        out.append(f"MATCH {pmatch('a', a)}, {pmatch('b', b)} CREATE (a)-[:SUBSTITUTE {{strength: {e['strength']}, "
                    f"model_score: {e['model_score']}, review: {q(e['review'])}, depth: {w['max_depth']}}}]->(b);")
     for (a, b), e in comps.items():
-        out.append(f"MATCH (a:Product {{id: {q(a)}}}), (b:Product {{id: {q(b)}}}) CREATE (a)-[:COMPLEMENT {{strength: {e['strength']}, "
+        out.append(f"MATCH {pmatch('a', a)}, {pmatch('b', b)} CREATE (a)-[:COMPLEMENT {{strength: {e['strength']}, "
                    f"reason: {q(e['reason'])}, source: {q(e['source'])}}}]->(b);")
+    for sc in tpo["scenes"]:
+        out.append(f"MERGE (s:Scene {{id: {q(sc['id'])}}}) SET s.name = {q(sc['name'])}, s.budget = {sc['budget']};")
+        for dim, v in sc["tpo"].items():
+            out.append(f"MATCH (s:Scene {{id: {q(sc['id'])}}}), (t:TPO {{key: {q(f'{dim}={v}')}}}) MERGE (s)-[:AT]->(t);")
+        for i, (cs, total, items) in enumerate(combos[sc["id"]], 1):
+            cid = f"{sc['id']}#{i}"
+            out.append(f"MATCH (s:Scene {{id: {q(sc['id'])}}}) CREATE (c:Combo {{id: {q(cid)}, score: {cs}, price: {total}, rank: {i}}})-[:FOR]->(s);")
+            for slot, p in zip(sc["slots"], items):
+                out.append(f"MATCH (c:Combo {{id: {q(cid)}}}), {pmatch('p', p['id'])} CREATE (c)-[:INCLUDES {{role: {q(slot['role'])}}}]->(p);")
+    for t in trends:
+        out.append(f"MERGE (t:Trend {{period: {q(t['period'])}}});")
+        out.append(f"MATCH {pmatch('p', t['product_id'])}, (t:Trend {{period: {q(t['period'])}}}) "
+                   f"CREATE (p)-[:IN_TREND {{score: {float(t['score'])}, source: {q(t['source'])}}}]->(t);")
     return out
 
 
+def to_audit(products, tpo, subs, comps, blocked, conflicts, combos, issues):
+    """사람 검수용 요약. 튀는 추천이 정책에 막혔는지, 콤보가 말이 되는지 한눈에 본다."""
+    n = lambda i: products[i]["name"]
+    L = ["# 추천 검수 리포트", "", "`python cvs.py graph` 가 생성. 이상하면 정책(ontology/)이나 검수셋(review/)을 고친 뒤 다시 돌린다.", ""]
+    L += [f"- 대체 간선 {len(subs)} · 보완 간선 {len(comps)} · 정책 차단 {len(blocked)} · 정책 충돌 {len(conflicts)}", ""]
+    L += ["## 정책 충돌 (검수 O 또는 지정 조합인데 정책 위반 — 둘 중 하나가 틀림)", ""]
+    L += [f"- {r} {n(a)} ↔ {n(b)} ({s}) — {why}" for r, a, b, s, why in conflicts] or ["- 없음"]
+    L += ["", "## 장면별 콤보", ""]
+    for sc in tpo["scenes"]:
+        tpo_txt = ", ".join(f"{k}={v}" for k, v in sc["tpo"].items())
+        L += [f"### {sc['name']} ({tpo_txt}, 예산 {sc['budget']:,}원)", ""]
+        L += [f"{i}. " + " + ".join(f"{s['role']}:{p['name']}" for s, p in zip(sc["slots"], items)) + f" — 궁합 {cs} · {total:,}원"
+              for i, (cs, total, items) in enumerate(combos[sc["id"]], 1)] or ["- 조건을 만족하는 조합 없음"]
+        L.append("")
+    L += ["## 상품별 대체재 상위 3", "", "| 상품 | 대체재 (강도·검수) |", "|---|---|"]
+    for pid in products:
+        es = sorted(((e["strength"], b if a == pid else a, e["review"]) for (a, b), e in subs.items() if pid in (a, b)), reverse=True)[:3]
+        L.append(f"| {n(pid)} | " + ", ".join(f"{n(o)} {s} {'✔' if r == 'approved' else ''}" for s, o, r in es) + " |")
+    L += ["", "## 정책이 막은 추천 (점수는 높았지만 사람이라면 안 할 추천)", "", "| 관계 | A | B | 점수 | 사유 |", "|---|---|---|---|---|"]
+    L += [f"| {r} | {n(a)} | {n(b)} | {s} | {why} |" for r, a, b, s, why in sorted(blocked, key=lambda x: -x[3])[:40]]
+    unknown = [i for i in issues if i[4] == "unknown_value"]
+    L += ["", "## 처음 보는 속성값 (대응방침 대기)", ""] + ([f"- {i[1]} · {i[2]} = '{i[3]}'" for i in unknown] or ["- 없음"])
+    return "\n".join(L) + "\n"
+
+
 def cmd_graph(args):
-    attrs, cats = load_taxonomy()
-    products, _ = load_products(attrs, cats)
+    attrs, cats, products, issues, policy, tpo = load_context()
     w = load_weights()
-    subs, comps = build_edges(products, attrs, w, load_gold(), args.k, args.min_score)
-    stmts = to_cypher(products, attrs, cats, subs, comps, w)
+    subs, comps, blocked, conflicts = build_edges(products, attrs, policy, w, load_gold(), args.k, args.min_score)
+    combos = build_combos(products, policy, tpo, comps)
+    trends = load_trends(products, policy)
+    stmts = to_cypher(products, attrs, cats, policy, tpo, subs, comps, combos, trends, w)
     (ROOT / "out").mkdir(exist_ok=True)
     (ROOT / "out/graph.cypher").write_text("\n".join(stmts) + "\n", encoding="utf-8")
+    (ROOT / "out/audit.md").write_text(to_audit(products, tpo, subs, comps, blocked, conflicts, combos, issues), encoding="utf-8")
     name = lambda i: products[i]["name"]
     write_csv("out/edges.csv", ["rel", "a", "a_name", "b", "b_name", "strength", "model_score", "review_or_reason"],
               [("SUBSTITUTE", a, name(a), b, name(b), e["strength"], e["model_score"], e["review"])
@@ -338,7 +545,8 @@ def cmd_graph(args):
                  for (a, b), e in sorted(comps.items(), key=lambda x: -x[1]["strength"])])
     by = lambda key: sum(e["review"] == key for e in subs.values())
     print(f"대체 간선 {len(subs)} (검수O {by('approved')} / 미검수 {by('unreviewed')}) · 보완 간선 {len(comps)}")
-    print(f"→ out/graph.cypher ({len(stmts)}문), out/edges.csv")
+    print(f"정책 차단 {len(blocked)} · 정책 충돌 {len(conflicts)} · 콤보 {sum(map(len, combos.values()))} · 트렌드 {len(trends)}")
+    print(f"→ out/graph.cypher ({len(stmts)}문), out/edges.csv, out/audit.md")
     if args.push:
         from neo4j import GraphDatabase  # pip install neo4j
         uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")

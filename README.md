@@ -1,6 +1,8 @@
 # cvs-taxonomy
 
-편의점 상품 텍소노미 → 대체재/보완재 점수 → 인간 검수 루프 → 그래프DB(Neo4j) 적재.
+우리동네GS 추천(대체재·보완재·트렌드·콤보)용 온톨로지 그래프DB.
+텍소노미 → TPO 추론 → 정책(상품간·규격·속성·아이덴티티)으로 튀는 추천 차단 → 인간 검수 루프 → Neo4j 적재.
+설계 문서: `docs/design.md` / `docs/design.pdf`, 속성 증강 흐름도: `docs/attribute_augmentation.mmd`
 1차 범위는 **과자 43개 + 라면 18개**(시드). 다음 순서는 생필품 → 음료(보완재 본격 확장).
 
 ## 구성
@@ -15,7 +17,10 @@
 | `review/gold.csv` | 검수 정답셋 (대체 가능 O=1 / X=0) |
 | `review/queue.csv` | 검수 대기 후보 |
 | `config/weights.yaml` | sweep 결과(쓰는 뎁스·뎁스별 가중치 배수) |
-| `config/complement_rules.yaml` | 보완재 조합·규칙 |
+| `ontology/policy.yaml` | 정책: 아이덴티티·대체재·규격·보완재·콤보·트렌드 |
+| `ontology/tpo.yaml` | TPO 차원·속성→TPO 추론 규칙·콤보 장면 6개 |
+| `data/trends.csv` | 트렌드 신호(판매·검색). 현재 비어 있음 |
+| `out/audit.md` | 검수용 리포트: 정책 충돌·장면별 콤보·대체재·정책이 막은 추천 |
 
 ## 속성 뎁스
 
@@ -42,6 +47,7 @@
 - **대체재 점수**: 같은 type 안에서 속성별 유사도(트리 거리 / 일치 / 자카드 / 순서 거리)의 가중 평균. 결측 처리는 대응방침 문서 참고.
 - **SUBSTITUTE 강도**: 검수 O → `0.5 + 0.5×점수` (바닥 0.5) · 검수 X → 간선 없음 · 미검수 → `0.8×점수` (상품당 상위 5개, 점수 0.55 이상)
 - **COMPLEMENT 강도**: 직접 지정 조합(예: 짜파게티+너구리 0.9) > 속성 규칙(0.25~0.35, 가설이라 낮게)
+- **정책 필터**: 점수와 별개인 하드 조건. 위반하면 간선을 만들지 않고 audit.md 에 사유를 남긴다. 검수 O인데 위반이면 '정책 충돌'.
 
 ## 루프
 
@@ -74,6 +80,8 @@ Docker 없이 쓰려면 Neo4j Browser/AuraDB에 `out/graph.cypher` 를 실행한
 (:Product)-[:HAS_ATTR]->(:AttrValue)<-[:HAS_VALUE]-(:Attribute)
 (:Product)-[:SUBSTITUTE {strength, model_score, review, depth}]->(:Product)
 (:Product)-[:COMPLEMENT {strength, reason, source}]->(:Product)
+(:Product)-[:FITS|AVOIDS]->(:TPO)<-[:AT]-(:Scene)<-[:FOR]-(:Combo)-[:INCLUDES {role}]->(:Product)
+(:Product)-[:IN_TREND {score, source}]->(:Trend {period})
 ```
 
 예: 신라면 대체재 → `MATCH (:Product {name:'신라면'})-[r:SUBSTITUTE]-(p) RETURN p.name, r.strength ORDER BY r.strength DESC`
