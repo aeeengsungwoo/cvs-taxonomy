@@ -1,0 +1,385 @@
+<title>GS 추천 온톨로지 보드</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Gaegu:wght@700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: FigJam 같은 점 격자 캔버스 위에 섹션 프레임 4개. 각 프레임은 가로 스크롤되는 보드, 스티키 색 = 단계의 종류 */
+:root {
+  --canvas: #f2f1ee;
+  --dot: #d3d0c8;
+  --frame: #ffffff;
+  --frame-line: #e2dfd8;
+  --ink: #23221f;
+  --ink-soft: #6b6862;
+  --connector: #57534b;
+  --marker: #5b3fd1;
+  --s-yellow: #ffe28a;
+  --s-green: #b4ecbf;
+  --s-blue: #aed8ff;
+  --s-pink: #ffc4e6;
+  --s-orange: #ffc99e;
+  --s-violet: #d6c6ff;
+  --s-red: #ffb3ad;
+  --s-gray: #e6e3dc;
+  --sticky-ink: #1f1d1a;
+  --font-body: "IBM Plex Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --font-hand: "Gaegu", "IBM Plex Sans KR", cursive;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: #1d1d1f; --dot: #3a3a3e; --frame: #2a2a2d; --frame-line: #3d3d42;
+    --ink: #ecebe8; --ink-soft: #a6a39d; --connector: #b9b5ad; --marker: #b9a6ff;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --canvas: #1d1d1f; --dot: #3a3a3e; --frame: #2a2a2d; --frame-line: #3d3d42;
+  --ink: #ecebe8; --ink-soft: #a6a39d; --connector: #b9b5ad; --marker: #b9a6ff;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background-color: var(--canvas);
+  background-image: radial-gradient(var(--dot) 1.2px, transparent 1.2px);
+  background-size: 22px 22px;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.page {
+  max-width: 1500px;
+  margin: 0 auto;
+  padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid;
+  gap: 28px;
+}
+header { display: grid; gap: 10px; }
+h1 { font-size: 26px; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+.sub { color: var(--ink-soft); margin: 0; max-width: 70ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-soft); }
+.chip i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+
+/* 섹션 프레임 */
+.frame {
+  background: var(--frame);
+  border: 1px solid var(--frame-line);
+  border-radius: 10px;
+  position: relative;
+  min-width: 0;
+}
+.frame > .tab {
+  position: absolute; top: -12px; left: 16px;
+  background: var(--ink); color: var(--frame);
+  font-size: 12px; font-weight: 700; letter-spacing: .02em;
+  padding: 3px 10px; border-radius: 6px;
+}
+.frame-body { padding: 26px 18px 18px; display: grid; gap: 12px; }
+.frame-note { margin: 0; color: var(--ink-soft); font-size: 13px; max-width: 80ch; }
+.scroller { overflow-x: auto; padding-bottom: 6px; }
+.hand { font-family: var(--font-hand); color: var(--marker); font-size: 19px; line-height: 1.15; }
+
+/* 스티키 */
+.sticky {
+  background: var(--c, var(--s-yellow));
+  color: var(--sticky-ink);
+  border-radius: 3px;
+  padding: 10px 11px 11px;
+  box-shadow: 0 1px 1px rgba(0,0,0,.08), 0 4px 10px rgba(0,0,0,.10);
+  font-size: 12.5px; line-height: 1.45;
+}
+.sticky b { display: block; font-size: 13px; margin-bottom: 3px; }
+.sticky .k { font-family: var(--font-mono); font-size: 11px; opacity: .7; }
+.yellow { --c: var(--s-yellow); } .green { --c: var(--s-green); } .blue { --c: var(--s-blue); }
+.pink { --c: var(--s-pink); } .orange { --c: var(--s-orange); } .violet { --c: var(--s-violet); }
+.red { --c: var(--s-red); } .gray { --c: var(--s-gray); }
+
+/* 보드 1: 플로우 */
+.flow { position: relative; display: flex; align-items: stretch; gap: 0; width: max-content; padding: 6px 4px 96px; }
+.stage { width: 172px; display: flex; flex-direction: column; gap: 8px; }
+.stage-title { font-size: 12px; font-weight: 700; color: var(--ink-soft); letter-spacing: .03em; height: 20px; }
+.arrow { width: 34px; display: flex; align-items: center; justify-content: center; padding-top: 20px; }
+.arrow svg { width: 30px; height: 14px; }
+.arrow path { stroke: var(--connector); fill: none; stroke-width: 2; }
+.arrow polygon { fill: var(--connector); }
+.depth { display: grid; gap: 6px; }
+.dbadge { font-family: var(--font-mono); font-size: 10.5px; background: rgba(0,0,0,.08); border-radius: 3px; padding: 0 4px; margin-right: 4px; }
+.dim { opacity: .55; }
+#loop { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+#loop path { fill: none; stroke: var(--marker); stroke-width: 2; stroke-dasharray: 6 5; }
+#loop polygon { fill: var(--marker); }
+#loop text { fill: var(--marker); font-family: var(--font-hand); font-size: 17px; }
+
+/* 보드 2: 예시 */
+.ex { display: grid; grid-template-columns: 116px repeat(8, 178px); gap: 10px; width: max-content; align-items: start; }
+.ex .colh { font-size: 12px; font-weight: 700; color: var(--ink-soft); letter-spacing: .03em; }
+.ex .rowh { align-self: stretch; display: flex; flex-direction: column; justify-content: center; gap: 4px; font-weight: 700; font-size: 15px; border-right: 2px dashed var(--frame-line); padding-right: 8px; }
+.ex .rowh small { font-weight: 400; color: var(--ink-soft); font-size: 12px; }
+.tag { display: inline-block; background: rgba(0,0,0,.09); border-radius: 3px; padding: 0 5px; margin: 1px 2px 1px 0; font-size: 11.5px; }
+.tag.no { text-decoration: line-through; }
+.tag.new { background: rgba(0,0,0,0); outline: 1.5px dashed rgba(0,0,0,.45); }
+
+/* 보드 3: 차단 */
+.blocked { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.pair { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13px; flex-wrap: wrap; }
+.x { font-family: var(--font-mono); color: #b3261e; }
+.score { font-family: var(--font-mono); font-size: 11.5px; }
+
+/* 보드 4: 그래프 */
+.graph svg { width: 100%; min-width: 760px; height: auto; display: block; }
+.graph .edge { stroke: var(--connector); stroke-width: 1.6; fill: none; }
+.graph .edge.rec { stroke: var(--marker); stroke-width: 2.4; }
+.graph .elabel { fill: var(--ink-soft); font-family: var(--font-mono); font-size: 11px; }
+.graph .elabel.rec { fill: var(--marker); }
+.graph .node rect { stroke: rgba(0,0,0,.18); stroke-width: 1; }
+.graph .node text { fill: #1f1d1a; font-family: var(--font-body); font-size: 13px; font-weight: 700; }
+.graph .node text.s { font-weight: 400; font-size: 11px; }
+
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+@media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: no-preference) {
+  .sticky { transition: transform .15s ease; }
+  .sticky:hover { transform: rotate(-0.8deg) translateY(-2px); }
+}
+</style>
+
+<div class="page">
+  <header>
+    <h1>우리동네GS 추천 온톨로지</h1>
+    <p class="sub">원본 상품이 속성 증강을 거쳐 대체재·보완재·콤보·트렌드 간선이 되기까지의 흐름. 과자 43개 · 라면 18개 시드 기준 실제 결과값입니다.</p>
+    <div class="legend" aria-label="스티키 색 범례">
+      <span class="chip"><i style="background:var(--s-gray)"></i>원본</span>
+      <span class="chip"><i style="background:var(--s-yellow)"></i>정규화·속성</span>
+      <span class="chip"><i style="background:var(--s-blue)"></i>TPO</span>
+      <span class="chip"><i style="background:var(--s-violet)"></i>아이덴티티·점수</span>
+      <span class="chip"><i style="background:var(--s-orange)"></i>정책</span>
+      <span class="chip"><i style="background:var(--s-green)"></i>추천 간선</span>
+      <span class="chip"><i style="background:var(--s-pink)"></i>인간 검수</span>
+      <span class="chip"><i style="background:var(--s-red)"></i>차단</span>
+    </div>
+  </header>
+
+  <!-- 보드 1 -->
+  <section class="frame" aria-labelledby="b1">
+    <span class="tab" id="b1">1 · 속성 증강 플로우</span>
+    <div class="frame-body">
+      <div class="scroller">
+        <div class="flow" id="flow">
+          <div class="stage">
+            <div class="stage-title">원본 상품</div>
+            <div class="sticky gray"><b>상품 데이터</b>이름 · 카테고리 · 속성 표기<br><span class="k">data/products.csv</span></div>
+            <div class="sticky gray"><b>새 상품</b>먹태깡 청양마요맛<br>맛: 짠맛|해산물|청양|마요</div>
+          </div>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 30 14"><path d="M1 7 H22"/><polygon points="22,2 29,7 22,12"/></svg></div>
+
+          <div class="stage">
+            <div class="stage-title">① 정규화</div>
+            <div class="sticky yellow"><b>동의어 흡수</b>청양 → 매운맛<br>짭짤 → 짠맛</div>
+            <div class="sticky yellow"><b>처음 보는 값</b>마요 → 비우고 후보 큐<br><span class="k">review/new_values.csv</span></div>
+            <div class="sticky yellow"><b>승격 기준</b>상품 3개 이상에서 등장 → 정의 붙여 새 값</div>
+          </div>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 30 14"><path d="M1 7 H22"/><polygon points="22,2 29,7 22,12"/></svg></div>
+
+          <div class="stage" id="st-attr">
+            <div class="stage-title">② 속성 부여 (뎁스)</div>
+            <div class="depth">
+              <div class="sticky yellow"><b><span class="dbadge">D1</span>정체성</b>카테고리 · 주원료 · 유탕 · 제조방식<br>라면: 포장형태 · 조리형태</div>
+              <div class="sticky yellow"><b><span class="dbadge">D2</span>감각</b>맛계열 · 맵기 · 식감 · 형태<br>라면: 국물베이스 · 면</div>
+              <div class="sticky yellow"><b><span class="dbadge">D3</span>상황·가치</b>가격대 · 용량 · 섭취상황</div>
+              <div class="sticky yellow dim"><b><span class="dbadge">D4</span>세부</b>주타깃 · 제조사<br>sweep 결과 미사용</div>
+            </div>
+          </div>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 30 14"><path d="M1 7 H22"/><polygon points="22,2 29,7 22,12"/></svg></div>
+
+          <div class="stage">
+            <div class="stage-title">③ TPO 추론</div>
+            <div class="sticky blue"><b>술안주</b>→ 저녁·심야 / 집·야외</div>
+            <div class="sticky blue"><b>봉지라면</b>→ 야외 가능<br>사무실·이동중 <u>제외</u></div>
+            <div class="sticky blue"><b>국물</b>→ 추움·비 / 더움 <u>제외</u></div>
+            <div class="sticky blue"><b>녹는 식감</b>→ 더움 <u>제외</u></div>
+          </div>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 30 14"><path d="M1 7 H22"/><polygon points="22,2 29,7 22,12"/></svg></div>
+
+          <div class="stage">
+            <div class="stage-title">④ 아이덴티티</div>
+            <div class="sticky violet"><b>과자</b>카테고리 2단계<br><span class="k">SNK.CHIP · BIS.COOKIE · CHO.BAR</span></div>
+            <div class="sticky violet"><b>라면</b>조리형태<br>국물 · 짜장 · 볶음 · 비빔</div>
+          </div>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 30 14"><path d="M1 7 H22"/><polygon points="22,2 29,7 22,12"/></svg></div>
+
+          <div class="stage" id="st-score">
+            <div class="stage-title">⑤ 점수</div>
+            <div class="sticky violet"><b>뎁스별 가중 유사도</b>트리 거리 · 일치 · 자카드 · 순서 거리</div>
+            <div class="sticky violet"><b>sweep 결과</b>뎁스 ≤3 선택<br><span class="k">AUC 0.988 · MRR 0.917</span></div>
+          </div>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 30 14"><path d="M1 7 H22"/><polygon points="22,2 29,7 22,12"/></svg></div>
+
+          <div class="stage">
+            <div class="stage-title">⑥ 정책 필터</div>
+            <div class="sticky orange"><b>상품간</b>섭취상황 1개 이상 겹침</div>
+            <div class="sticky orange"><b>규격</b>가격대·용량 1단계<br>맵기 2단계 이내</div>
+            <div class="sticky orange"><b>아이덴티티</b>같은 대분류 / 같은 조리형태</div>
+            <div class="sticky orange"><b>TPO</b>보완재는 시간대 겹침</div>
+          </div>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 30 14"><path d="M1 7 H22"/><polygon points="22,2 29,7 22,12"/></svg></div>
+
+          <div class="stage">
+            <div class="stage-title">⑦ 추천 간선</div>
+            <div class="sticky green"><b>대체재 158</b>검수 O: 0.5 + 0.5×점수<br>미검수: 0.8×점수</div>
+            <div class="sticky green"><b>보완재 320</b>지정 조합 0.9<br>속성 규칙 0.25~0.35</div>
+            <div class="sticky green"><b>콤보 30</b>장면 6개 × 상위 5</div>
+            <div class="sticky green dim"><b>트렌드</b>판매·검색 데이터 대기</div>
+          </div>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 30 14"><path d="M1 7 H22"/><polygon points="22,2 29,7 22,12"/></svg></div>
+
+          <div class="stage" id="st-review">
+            <div class="stage-title">⑧ 적재 · 검수</div>
+            <div class="sticky gray"><b>Neo4j</b><span class="k">out/graph.cypher</span><br>2,337문</div>
+            <div class="sticky pink" id="review-note"><b>인간 검수</b>audit.md 확인<br>queue.csv에 O / X<br><span class="k">대기 72쌍</span></div>
+          </div>
+
+          <svg id="loop" aria-hidden="true"></svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 보드 2 -->
+  <section class="frame" aria-labelledby="b2">
+    <span class="tab" id="b2">2 · 속성 증강 예시</span>
+    <div class="frame-body">
+      <p class="frame-note">같은 파이프라인을 상품 두 개가 실제로 통과한 결과입니다. 점선 태그는 아직 스키마에 없는 값, 취소선은 TPO에서 제외된 값입니다.</p>
+      <div class="scroller">
+        <div class="ex">
+          <div></div>
+          <div class="colh">원본</div><div class="colh">정규화</div><div class="colh">D1 정체성</div><div class="colh">D2 감각</div>
+          <div class="colh">D3 상황·가치</div><div class="colh">③ TPO</div><div class="colh">④ 아이덴티티</div><div class="colh">⑦ 추천 결과</div>
+
+          <div class="rowh">먹태깡<small>청양마요맛 · 농심</small></div>
+          <div class="sticky gray">SNK.WHEAT<br>짠맛 | 해산물 | 청양 | 마요<br>맵기 약 · 1500~2500</div>
+          <div class="sticky yellow">청양 → <span class="tag">매운맛</span><br>마요 → <span class="tag new">미등록</span><br><span class="k">후보 큐 1건</span></div>
+          <div class="sticky yellow"><span class="tag">소맥 튀김 스낵</span><span class="tag">밀가루</span><span class="tag">유탕</span><span class="tag">튀김</span></div>
+          <div class="sticky yellow"><span class="tag">매운맛</span><span class="tag">짠맛</span><span class="tag">해산물</span><br>맵기 <span class="tag">약</span> 식감 <span class="tag">바삭</span></div>
+          <div class="sticky yellow"><span class="tag">1500~2500</span><span class="tag">중</span><br><span class="tag">간식</span><span class="tag">술안주</span></div>
+          <div class="sticky blue">시간 <span class="tag">오후</span><span class="tag">저녁</span><span class="tag">심야</span><br>장소 <span class="tag">집</span><span class="tag">사무실·학교</span><span class="tag">야외·캠핑</span><span class="tag">이동중</span></div>
+          <div class="sticky violet">snack / <b style="display:inline">SNK.WHEAT</b><br>새우깡·꽃게랑과 같은 정체성</div>
+          <div class="sticky green"><b>대체</b>새우깡 0.966 ✔<br>꽃게랑 0.745 · 양파링 0.712<br><b style="margin-top:4px">보완</b>야식 라면 0.25</div>
+
+          <div class="rowh">신라면<small>봉지 · 농심</small></div>
+          <div class="sticky gray">RMN.SOUP.SPICY<br>매운맛 | 감칠맛 | 고기<br>맵기 중 · ~1500</div>
+          <div class="sticky yellow">모든 값 등록됨<br><span class="k">미등록 0건</span></div>
+          <div class="sticky yellow"><span class="tag">얼큰 국물</span><span class="tag">유탕</span><span class="tag">봉지</span><span class="tag">국물</span></div>
+          <div class="sticky yellow"><span class="tag">매운맛</span><span class="tag">감칠맛</span><span class="tag">고기</span><br>맵기 <span class="tag">중</span> <span class="tag">소고기</span><span class="tag">일반면</span></div>
+          <div class="sticky yellow"><span class="tag">~1500</span><span class="tag">소</span><br><span class="tag">식사대용</span><span class="tag">야식</span></div>
+          <div class="sticky blue">시간 <span class="tag">점심</span><span class="tag">저녁</span><span class="tag">심야</span><br>장소 <span class="tag">집</span><span class="tag">야외·캠핑</span><span class="tag no">사무실</span><span class="tag no">이동중</span><br>날씨 <span class="tag">추움</span><span class="tag">비</span><span class="tag no">더움</span></div>
+          <div class="sticky violet">ramen / <b style="display:inline">국물</b><br>짜장·볶음·비빔과는 대체 불가</div>
+          <div class="sticky green"><b>대체</b>진라면 매운맛 1.0 ✔<br>삼양라면 0.971 ✔ · 안성탕면 0.94 ✔<br><b style="margin-top:4px">보완</b>단 디저트 0.35 (에이스·칙촉…)</div>
+        </div>
+      </div>
+      <p class="hand">→ 신라면은 봉지라서 '사무실 점심' 콤보에 안 뜨고, 국물이라서 '더운 날' 콤보에 안 뜬다</p>
+    </div>
+  </section>
+
+  <div class="two">
+    <!-- 보드 3 -->
+    <section class="frame" aria-labelledby="b3">
+      <span class="tab" id="b3">3 · 정책이 막은 추천</span>
+      <div class="frame-body">
+        <p class="frame-note">유사도는 높았지만 사람이라면 하지 않을 추천. 점수 계산과 별개로 정책이 간선을 막았습니다.</p>
+        <div class="blocked">
+          <div class="sticky red"><div class="pair">짜파게티 <span class="x">✕→</span> 팔도비빔면</div><span class="score">유사도 0.564</span><br>아이덴티티: 조리형태 다름 (짜장 / 비빔)</div>
+          <div class="sticky red"><div class="pair">불닭볶음면 <span class="x">✕→</span> 팔도비빔면</div><span class="score">유사도 0.578</span><br>아이덴티티 + 규격: 맵기 극강 → 약</div>
+          <div class="sticky red"><div class="pair">하리보 <span class="x">✕→</span> 자일리톨 껌</div><span class="score">유사도 0.678</span><br>상품간: 섭취상황 겹침 없음 (간식 / 입가심)</div>
+          <div class="sticky red"><div class="pair">마이쮸 <span class="x">✕→</span> 자일리톨 껌</div><span class="score">유사도 0.674</span><br>상품간: 섭취상황 겹침 없음</div>
+          <div class="sticky red"><div class="pair">참크래커 <span class="x">✕→</span> 버터링</div><span class="score">유사도 0.698</span><br>규격: 가격대 ~1500 → 2500~4000</div>
+          <div class="sticky red"><div class="pair">참크래커 <span class="x">✕→</span> 쿠크다스</div><span class="score">유사도 0.609</span><br>규격: 가격대 2단계 차이</div>
+        </div>
+        <p class="hand">검수에서 O인데 정책에 걸리면 '정책 충돌'로 따로 올림 (현재 0건)</p>
+      </div>
+    </section>
+
+    <!-- 보드 4 -->
+    <section class="frame graph" aria-labelledby="b4">
+      <span class="tab" id="b4">4 · 그래프 스키마</span>
+      <div class="frame-body">
+        <div class="scroller">
+          <svg viewBox="0 0 760 430" role="img" aria-label="Product 노드를 중심으로 Category, AttrValue, TPO, Scene, Combo, Trend 노드가 연결된 그래프 스키마">
+            <defs>
+              <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--connector)"/></marker>
+              <marker id="ahr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--marker)"/></marker>
+            </defs>
+            <!-- 간선 -->
+            <path class="edge" d="M300 205 L190 110" marker-end="url(#ah)"/>
+            <text class="elabel" x="180" y="165">IN_CATEGORY</text>
+            <path class="edge" d="M110 72 C 60 40, 60 20, 110 30" marker-end="url(#ah)"/>
+            <text class="elabel" x="20" y="22">SUBCATEGORY_OF</text>
+            <path class="edge" d="M300 240 L190 330" marker-end="url(#ah)"/>
+            <text class="elabel" x="200" y="300">HAS_ATTR</text>
+            <path class="edge" d="M95 395 L95 368" marker-end="url(#ah)"/>
+            <text class="elabel" x="104" y="410">HAS_VALUE ← Attribute</text>
+            <path class="edge" d="M420 200 L560 120" marker-end="url(#ah)"/>
+            <text class="elabel" x="470" y="145">FITS / AVOIDS</text>
+            <path class="edge" d="M640 205 L640 128" marker-end="url(#ah)"/>
+            <text class="elabel" x="650" y="172">AT</text>
+            <path class="edge" d="M600 330 L640 262" marker-end="url(#ah)"/>
+            <text class="elabel" x="628" y="305">FOR</text>
+            <path class="edge" d="M540 350 L420 245" marker-end="url(#ah)"/>
+            <text class="elabel" x="480" y="320">INCLUDES</text>
+            <path class="edge" d="M360 265 L360 345" marker-end="url(#ah)"/>
+            <text class="elabel" x="370" y="310">IN_TREND</text>
+            <path class="edge rec" d="M330 190 C 300 120, 420 120, 390 190" marker-end="url(#ahr)"/>
+            <text class="elabel rec" x="300" y="112">SUBSTITUTE · COMPLEMENT</text>
+            <text class="elabel rec" x="318" y="127">{strength}</text>
+            <!-- 노드 -->
+            <g class="node"><rect x="290" y="190" width="140" height="66" rx="4" fill="var(--s-green)"/><text x="360" y="218" text-anchor="middle">Product</text><text class="s" x="360" y="238" text-anchor="middle">id · name · identity</text></g>
+            <g class="node"><rect x="100" y="62" width="120" height="50" rx="4" fill="var(--s-yellow)"/><text x="160" y="84" text-anchor="middle">Category</text><text class="s" x="160" y="101" text-anchor="middle">34 노드 · 정의</text></g>
+            <g class="node"><rect x="30" y="316" width="140" height="50" rx="4" fill="var(--s-yellow)"/><text x="100" y="338" text-anchor="middle">AttrValue</text><text class="s" x="100" y="355" text-anchor="middle">flavor=매운맛 · 정의</text></g>
+            <g class="node"><rect x="560" y="76" width="160" height="50" rx="4" fill="var(--s-blue)"/><text x="640" y="98" text-anchor="middle">TPO</text><text class="s" x="640" y="115" text-anchor="middle">time · place · weather</text></g>
+            <g class="node"><rect x="580" y="208" width="120" height="50" rx="4" fill="var(--s-blue)"/><text x="640" y="230" text-anchor="middle">Scene</text><text class="s" x="640" y="247" text-anchor="middle">장면 6 · 예산</text></g>
+            <g class="node"><rect x="530" y="330" width="120" height="50" rx="4" fill="var(--s-green)"/><text x="590" y="352" text-anchor="middle">Combo</text><text class="s" x="590" y="369" text-anchor="middle">score · price · rank</text></g>
+            <g class="node"><rect x="300" y="347" width="120" height="50" rx="4" fill="var(--s-gray)"/><text x="360" y="369" text-anchor="middle">Trend</text><text class="s" x="360" y="386" text-anchor="middle">period · score</text></g>
+          </svg>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+// 보드 1의 검수 루프 화살표: ⑧ 인간 검수 → ⑤ 점수(정답셋), → ② 속성(스키마·정책 수정)
+function drawLoop() {
+  const flow = document.getElementById('flow');
+  const svg = document.getElementById('loop');
+  const from = document.getElementById('review-note');
+  const toScore = document.getElementById('st-score');
+  const toAttr = document.getElementById('st-attr');
+  if (!flow || !svg || !from) return;
+  const fb = flow.getBoundingClientRect();
+  const rel = el => { const r = el.getBoundingClientRect(); return { x: r.left - fb.left, y: r.top - fb.top, w: r.width, h: r.height }; };
+  const f = rel(from), s = rel(toScore), a = rel(toAttr);
+  const H = flow.scrollHeight, W = flow.scrollWidth;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('width', W); svg.setAttribute('height', H);
+  const startX = f.x + f.w / 2, startY = f.y + f.h;
+  const bottom1 = H - 58, bottom2 = H - 22;
+  const sx = s.x + s.w / 2, ax = a.x + a.w / 2;
+  const colBottom = el => { let m = 0; el.querySelectorAll('.sticky').forEach(n => { const r = rel(n); m = Math.max(m, r.y + r.h); }); return m; };
+  const sY = colBottom(toScore) + 8, aY = colBottom(toAttr) + 8;
+  const head = (x, y) => `<polygon points="${x - 6},${y + 10} ${x + 6},${y + 10} ${x},${y}"/>`;
+  svg.innerHTML =
+    `<path d="M${startX} ${startY + 4} V${bottom1} H${sx} V${sY + 10}"/>` + head(sx, sY) +
+    `<text x="${sx + 12}" y="${bottom1 - 8}">O/X → 정답셋 → sweep 다시</text>` +
+    `<path d="M${startX} ${bottom1} V${bottom2} H${ax} V${aY + 10}"/>` + head(ax, aY) +
+    `<text x="${ax + 12}" y="${bottom2 - 8}">X가 많으면 → 속성·정의·정책 수정 후 루프 다시</text>`;
+}
+const redraw = () => requestAnimationFrame(drawLoop);
+window.addEventListener('load', redraw);
+window.addEventListener('resize', redraw);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(redraw);
+redraw();
+</script>
