@@ -335,6 +335,7 @@ def substitute_violations(p, q, attrs, policy):
         return ["상품간: type 다름"]
     sub, rule, out = policy["substitute"], policy["substitute"][p["type"]], []
     line = bool(p["attrs"].get("line")) and p["attrs"].get("line") == q["attrs"].get("line")
+    menu = bool(p["attrs"].get("menu")) and p["attrs"].get("menu") == q["attrs"].get("menu")
     within = lambda cs: any(matches(p, {"category": c}) for c in cs) and any(matches(q, {"category": c}) for c in cs)
     covers = any(within([i["set"], *i["covers"]]) if i.get("two_way") else
                  matches(q, {"category": i["set"]}) and any(matches(p, {"category": c}) for c in i["covers"])
@@ -344,8 +345,9 @@ def substitute_violations(p, q, attrs, policy):
         out.append(f"아이덴티티: 카테고리 {rule['category_level']}단계 다름")
     for aid in rule.get("same", []):
         a, b = p["attrs"].get(aid), q["attrs"].get(aid)
-        if (aid in rule.get("same_unless_line", []) and line) or within(rule.get("loose", {}).get(aid, [])):
-            continue  # 같은 라인이면 포장형태가 달라도 됨 (불닭 봉지 → 불닭 큰컵) · 생리대는 사이즈 한 단계 차이 허용
+        if ((aid in rule.get("same_unless_line", []) and line) or (aid in rule.get("same_unless_menu", []) and menu)
+                or within(rule.get("loose", {}).get(aid, []))):
+            continue  # 같은 라인·메뉴면 포장형태가 달라도 됨 (불닭 봉지 → 불닭 큰컵, 짜왕 → 짜파게티 큰사발) · 생리대 사이즈 차이 허용
         if a is not None and b is not None and a != b:
             out.append(f"아이덴티티: {attrs[aid]['name']} 다름({a}/{b})")
     for aid in rule.get("share", []):
@@ -1011,7 +1013,8 @@ def oos_recommend(pid, products, attrs, cats, policy, subs, out_of_stock=(), con
 
     def tier(b, e):
         # 점원 순서: 같은 라인(더 세지는 쪽 아님) → 같은 세부 카테고리 → 나머지. 같은 단계 안에서는 강도순
-        up = any(st > 0 for st in direction_steps(p, products[b], attrs, policy).values())
+        # 조금이라도 세지는 쪽(안 매움 → 약간 매움 포함)은 뒤로: 짜파게티 → 사천짜파게티보다 다른 순한 짜장이 먼저
+        up = any(st > 0 for st in direction_steps(p, products[b], attrs, policy, raw=True).values())
         if e["anchor"] == "line" and not up:
             return 0
         return 1 if cat_prefix(p, 3) == cat_prefix(products[b], 3) and not up else 2

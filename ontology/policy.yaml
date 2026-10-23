@@ -20,7 +20,8 @@ substitute:
   snack: {category_level: 1, share: [occasion]}      # 대분류 같고 구매상황 겹침
   # 조리형태·포장형태 같음 (국물↔짜장, 봉지↔컵 대체 금지 — 2차 검수에서 추가)
   # 설문: 같은 라인이면 봉지 ↔ 큰컵 4쌍 모두 O (불닭 → 불닭 큰컵 100%, 신라면 → 신라면 큰사발 71%) — 다른 라인 작은컵 → 봉지는 5쌍 모두 X
-  ramen: {same: [style, container], same_unless_line: [container], share: [occasion]}
+  #   같은 메뉴(짜장)면 브랜드가 달라도 봉지 ↔ 큰컵 6쌍 모두 O (짜왕 → 짜파게티 큰사발 83%, 큰사발 → 짜짜로니 85%)
+  ramen: {same: [style, container], same_unless_line: [container], same_unless_menu: [container], share: [occasion]}
   beverage: {category_level: 2, share: [occasion]}   # 탄산은 탄산끼리, 커피는 커피끼리
   # 같은 품목 + 규격 일치 (AA ↔ AAA 금지). 설문: 생리대 중형 ↔ 대형 ↔ 오버나이트는 4쌍 O (급할 땐 한 사이즈 차이는 산다)
   household: {category_level: 3, same: [spec], loose: {spec: [HOU.FEM]}}
