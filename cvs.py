@@ -11,6 +11,7 @@
   python cvs.py admin             관리자 답 반영 (상품쌍 → gold.csv, 정책 문항 → 방향 정책)
   python cvs.py oos 코카콜라      품절 시 대신 권할 상품과 이유 (--also-out, --context weather=더움, --all)
   python cvs.py survey            페르소나 설문 집계 → 기존 라벨과 대조, 품절 추천 precision/recall (out/survey_*.csv)
+  python cvs.py taxofit           택소노미 적합도: 트리 거리가 설문 대체 판단과 맞는가 → out/taxonomy_fit.csv
   python cvs.py graph [--push]    out/graph.cypher, out/edges.csv, out/audit.md 생성 (--push 면 Neo4j에 바로 적재)
                                   정책 충돌 → review/conflicts.csv (decision 칸에 허용 / 유지)
 """
@@ -1017,7 +1018,8 @@ def oos_recommend(pid, products, attrs, cats, policy, subs, out_of_stock=(), con
         up = any(st > 0 for st in direction_steps(p, products[b], attrs, policy, raw=True).values())
         if e["anchor"] == "line" and not up:
             return 0
-        return 1 if cat_prefix(p, 3) == cat_prefix(products[b], 3) and not up else 2
+        near = cat_prefix(p, 3) == cat_prefix(products[b], 3) or (cfg.get("group_tier") and same_group(p, products[b], policy))
+        return 1 if near and not up else 2
 
     cands = sorted(((tier(b, e), -e["strength"], b, e) for (a, b), e in subs.items()
                     if a == pid and b not in out_of_stock and e["strength"] >= cfg["min_strength"]))
@@ -1172,6 +1174,57 @@ def survey_features(p, q, attrs, policy):
     return out
 
 
+# ── 택소노미 적합도 ───────────────────────────────────────────────
+
+def tree_depth(p, q):
+    """두 상품이 카테고리 트리에서 공유하는 깊이 (SNK.CHIP.POTATO vs SNK.CHIP.SHAPED → 2)."""
+    x, y = p["attrs"]["category"].split("."), q["attrs"]["category"].split(".")
+    return next((k for k in range(min(len(x), len(y))) if x[k] != y[k]), min(len(x), len(y)))
+
+
+def same_group(p, q, policy):
+    return next((g["name"] for g in policy["substitute"].get("groups", [])
+                 if any(matches(p, {"category": c}) for c in g["cats"]) and any(matches(q, {"category": c}) for c in g["cats"])), None)
+
+
+def taxonomy_fit(products, attrs, policy, w, labels):
+    """좋은 택소노미 = 트리에서 가까울수록 손님이 실제로 대신 사는 트리. 설문 판정으로 잰다.
+    AUC  = 공유 깊이로 O/X 를 가르는 힘. 묶음(groups)은 중분류가 같은 것으로 친다.
+    후보 풀 = 트리로 후보를 거를 때(중분류가 같거나 같은 묶음) 남는 같은 type 상품 수 → LLM·설문에 넘길 양(비용)
+    보존율 = 설문 O 쌍 중 그 후보 풀 안에 남는 비율 → 거르면서 잃는 정답 (당근의 '후보 먼저 줄이기'와 같은 저울)."""
+    def depth(a, b):
+        d = tree_depth(products[a], products[b])
+        return max(d, 2) if same_group(products[a], products[b], policy) else d
+    out = {}
+    for name, f in (("트리만", lambda a, b: tree_depth(products[a], products[b])), ("트리 + 묶음", depth)):
+        pos = [f(a, b) for (a, b), (lab, _) in labels.items() if lab == 1]
+        neg = [f(a, b) for (a, b), (lab, _) in labels.items() if lab == 0]
+        auc = sum((x > y) + 0.5 * (x == y) for x in pos for y in neg) / (len(pos) * len(neg))
+        pool = [sum(f(p, q) >= 2 for q in products if q != p and products[q]["type"] == products[p]["type"]) for p in products]
+        out[name] = {"AUC": round(auc, 3), "후보 풀": round(float(np.mean(pool)), 1), "보존율": round(float(np.mean([x >= 2 for x in pos])), 3)}
+    return out
+
+
+def cmd_taxofit(args):
+    attrs, cats, products, _, policy, _ = load_context()
+    labels = survey_labels(policy)
+    for name, m in taxonomy_fit(products, attrs, policy, load_weights(), labels).items():
+        print(f"{name}: AUC {m['AUC']} · 후보 풀 평균 {m['후보 풀']}개 · 설문 O 보존율 {m['보존율']}")
+    # 트리가 갈라놓았는데 손님은 대신 사는 곳 = 경계 재검토 후보
+    cross = {}
+    for (a, b), (lab, r) in labels.items():
+        if tree_depth(products[a], products[b]) < 2:
+            k = tuple(sorted((cat_prefix(products[a], 2), cat_prefix(products[b], 2))))
+            c = cross.setdefault(k, [0, 0, same_group(products[a], products[b], policy) or ""])
+            c[0] += lab
+            c[1] += 1
+    rows = sorted(([x, y, o, n, round(o / n, 2), g] for (x, y), (o, n, g) in cross.items() if o), key=lambda r: (-r[2], -r[4]))
+    write_csv("out/taxonomy_fit.csv", ["node_a", "node_b", "survey_O", "judged", "O_rate", "group"], rows)
+    print(f"중분류를 넘는데 설문 O 인 노드 쌍 {len(rows)}개 → out/taxonomy_fit.csv (경계 재검토 후보)")
+    for r in rows[:6]:
+        print(f"  {r[0]} ↔ {r[1]}: O {r[2]}/{r[3]}" + (f" (묶음: {r[5]})" if r[5] else ""))
+
+
 def cmd_survey(args):
     attrs, cats, products, _, policy, _ = load_context()
     pairs, qs = load_survey()
@@ -1296,6 +1349,7 @@ def main():
     op.add_argument("--all", action="store_true", help="전 상품 품절 시 추천을 out/oos_recommendations.csv 로")
     op.set_defaults(fn=cmd_oos)
     sub.add_parser("survey").set_defaults(fn=cmd_survey)
+    sub.add_parser("taxofit").set_defaults(fn=cmd_taxofit)
     gp = sub.add_parser("graph")
     gp.add_argument("--k", type=int, default=5, help="상품당 대체 간선 최대 수")
     gp.add_argument("--min-score", type=float, default=0.55, help="미검수 대체 간선의 최소 모델 점수")

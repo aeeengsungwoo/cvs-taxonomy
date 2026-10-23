@@ -54,11 +54,26 @@ python cvs.py oos "코카콜라 500ml"
 | 지표 | 값 |
 |---|---|
 | 3개 중 하나를 고름 (선택률) | **94.0%** |
-| 1순위를 고름 | 87.9% |
+| 1순위를 고름 | 89.0% |
 | 살 게 있는데 아무것도 안 보여 줌 (빈손) | 4.2% |
-| 보여 준 것 중 안 고른 것 (헛추천) | 17.4% |
+| 보여 준 것 중 안 고른 것 (헛추천) | 16.9% |
 
 순위별 과반 수용은 1순위 96% · 2순위 93% · 3순위 82%다. 3순위는 확신이 낮으니 흐리게 표시하거나 "이것도 있어요" 정도로 약하게 보여 주는 것을 권한다 → [`docs/survey.md`](docs/survey.md#3개-보여-주기-기준-평가).
+
+### 한계와 다음 단계
+
+[`docs/limits_and_next.md`](docs/limits_and_next.md) 에 정리했다.
+- **한계:**
+  - 판단 주체가 거의 전부 AI다(실제 사람 검수는 1건).
+  - 상품이 늘면 설문 비용도 커진다.
+  - 설문이 갈린 쌍은 옛 AI 라벨이 남는다.
+  - 같은 종류 상품이 하나뿐이면 권할 게 없다.
+  - 카테고리 트리와 손님의 대체 경계가 어긋난다(트리만으로 AUC 0.72).
+- **대안:**
+  - 당근 방식처럼 애매한 쌍만, 관련 페르소나에게만 묻는다.
+  - 실제 사람 20문항 설문으로 페르소나를 교정한다.
+  - 택소노미 적합도(`cvs.py taxofit`)로 대체용 묶음을 정한다.
+  - 같은 종류 상품을 채운다.
 
 ![GS 추천 온톨로지 보드](docs/board.svg)
 
@@ -288,6 +303,7 @@ python cvs.py impact          #    속성 영향도 → out/attribute_impact.csv
 python cvs.py triage          #    벡터 근처 후보 자동 판정 + 관리자 질문 → review/admin_queue.csv
 python cvs.py admin           #    관리자 답 반영 (상품쌍 → gold.csv, 정책 문항 → 방향 정책)
 python cvs.py survey          #    페르소나 설문 판정·검증·평가 → out/survey_*.csv (docs/survey.md)
+python cvs.py taxofit         #    택소노미 적합도 (트리 거리 ↔ 설문 대체) → out/taxonomy_fit.csv (docs/limits_and_next.md)
 python cvs.py oos --all       #    전 상품 품절 대체 → out/oos_recommendations.csv
 python cvs.py graph           # 6. out/graph.cypher · out/edges.csv · out/audit.md
 python tools/board_svg.py     # 7. README 보드 갱신
@@ -337,6 +353,7 @@ MATCH (c:Combo)-[:FOR]->(:Scene {id:'rainy_commute'}), (c)-[i:INCLUDES]->(p) RET
 | `out/esci_policy_check.csv` · `out/esci_samples.csv` | ESCI 사람 라벨로 본 정책별 E/S/C/I 분포 · 샘플 |
 | `survey/personas.yaml` · `survey/questions.json` · `survey/answers/` | 설문 응답자 30명 · 품절 문항 115개 · 응답 |
 | `out/survey_pairs.csv` · `out/survey_features.csv` · `out/survey_eval.csv` | 설문 판정 · 차이 유형별 수용률 · 추천 vs 설문 평가 |
+| `out/taxonomy_fit.csv` | 중분류를 넘는데 설문 O인 노드 쌍 (대체용 경계 재검토 후보) |
 | `out/oos_recommendations.csv` | 상품별 품절 시 대신 권할 상품 3개와 이유 |
 | `out/product_vectors.csv` · `docs/product_map.svg` | 상품 벡터 지도 좌표·가장 가까운 3개 · 지도 |
 | `out/edges.csv` · `out/graph.cypher` | 추천 간선(강도·검수 상태·앵커) · Neo4j 적재 스크립트 |
